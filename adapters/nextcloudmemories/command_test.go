@@ -1,12 +1,14 @@
 package nextcloudmemories
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/simulot/immich-go/app"
+	"github.com/simulot/immich-go/internal/nextcloud"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,17 +109,6 @@ func TestCommandRunReturnsExplicitNotImplemented(t *testing.T) {
 		NextcloudClientTimeout: 5 * time.Minute,
 	}
 
-	t.Run("discover only", func(t *testing.T) {
-		t.Parallel()
-
-		nc := base
-		nc.DiscoverOnly = true
-		err := nc.Run(&cobra.Command{}, nil)
-		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrNotImplemented))
-		assert.ErrorContains(t, err, "source discovery")
-	})
-
 	t.Run("import path", func(t *testing.T) {
 		t.Parallel()
 
@@ -127,6 +118,67 @@ func TestCommandRunReturnsExplicitNotImplemented(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotImplemented))
 		assert.ErrorContains(t, err, "asset browsing")
 	})
+}
+
+func TestCommandRunDiscoverOnly(t *testing.T) {
+	t.Parallel()
+
+	nc := Command{
+		NextcloudURL:           "https://cloud.example.com",
+		NextcloudUser:          "alice",
+		NextcloudPassword:      "secret",
+		NextcloudClientTimeout: 5 * time.Minute,
+		DiscoverOnly:           true,
+		discover: func(ctx context.Context, cfg nextcloud.Config) (*nextcloud.MemoriesDiscovery, error) {
+			assert.Equal(t, "https://cloud.example.com", cfg.BaseURL)
+			assert.Equal(t, "alice", cfg.Username)
+			assert.Equal(t, "secret", cfg.Password)
+			return &nextcloud.MemoriesDiscovery{
+				BaseURL:       cfg.BaseURL,
+				DAVRoot:       cfg.BaseURL + "/remote.php/dav",
+				Capabilities:  nextcloud.OCSCapabilities{VersionString: "31.0.0", ProductName: "Nextcloud", Edition: "community"},
+				Describe:      nextcloud.MemoriesDescribe{Version: "7.5.0", BaseURL: cfg.BaseURL + "/index.php/apps/memories", UID: stringPtr("alice")},
+				Config:        nextcloud.MemoriesConfig{FoldersPath: "/", AlbumsEnabled: true, SystemTagsEnabled: true, PreviewGeneratorEnabled: false},
+				TimelineRoots: []string{"/Photos", "/Scans"},
+			}, nil
+		},
+	}
+
+	var output bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&output)
+
+	err := nc.Run(cmd, nil)
+	require.NoError(t, err)
+	text := output.String()
+	assert.Contains(t, text, "Nextcloud Memories scaffold")
+	assert.Contains(t, text, "Nextcloud Memories discovery")
+	assert.Contains(t, text, "nextcloud-version: 31.0.0")
+	assert.Contains(t, text, "configured-timeline-roots:")
+	assert.Contains(t, text, "selected-timeline-roots:")
+	assert.Contains(t, text, "    - /Photos")
+	assert.Contains(t, text, "albums-enabled: true")
+}
+
+func TestCommandRunDiscoverOnlyRejectsUnknownRequestedRoots(t *testing.T) {
+	t.Parallel()
+
+	nc := Command{
+		NextcloudURL:           "https://cloud.example.com",
+		NextcloudUser:          "alice",
+		NextcloudPassword:      "secret",
+		NextcloudClientTimeout: 5 * time.Minute,
+		DiscoverOnly:           true,
+		TimelineRoots:          []string{"/Scans"},
+		discover: func(ctx context.Context, cfg nextcloud.Config) (*nextcloud.MemoriesDiscovery, error) {
+			return &nextcloud.MemoriesDiscovery{TimelineRoots: []string{"/Photos"}}, nil
+		},
+	}
+
+	err := nc.Run(&cobra.Command{}, nil)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "requested --timeline-root")
+	assert.ErrorContains(t, err, "/Photos")
 }
 
 func TestCommandIntentSummary(t *testing.T) {
@@ -184,4 +236,8 @@ func TestCommandRejectsPositionalArguments(t *testing.T) {
 	err := cobra.NoArgs(&cobra.Command{Use: "from-nextcloud-memories"}, []string{"unexpected-path"})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "unknown command \"unexpected-path\" for \"from-nextcloud-memories\"")
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

@@ -5,15 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/simulot/immich-go/adapters"
 	"github.com/simulot/immich-go/app"
+	"github.com/simulot/immich-go/internal/nextcloud"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
+// ErrNotImplemented reports that the Nextcloud Memories importer is still being
+// built beyond the currently available scaffold and discovery flow.
 var ErrNotImplemented = errors.New("Nextcloud Memories import is not implemented yet")
 
 // Command holds the CLI state for the Nextcloud Memories source scaffold.
@@ -28,7 +32,8 @@ type Command struct {
 	SyncAlbums             bool
 	AllowUnindexed         bool
 
-	app *app.Application
+	discover func(context.Context, nextcloud.Config) (*nextcloud.MemoriesDiscovery, error)
+	app      *app.Application
 }
 
 func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
@@ -106,11 +111,52 @@ func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
 	}
 
 	if nc.DiscoverOnly {
-		return fmt.Errorf("%w: source discovery is not implemented yet", ErrNotImplemented)
+		ctx := context.Background()
+		if cmd != nil {
+			ctx = cmd.Context()
+		}
+		discovery, err := nc.runDiscovery(ctx)
+		if err != nil {
+			return err
+		}
+		if cmd != nil {
+			cmd.Println(nc.discoverySummary(discovery))
+		}
+		return nil
 	}
 
 	_ = runner
 	return fmt.Errorf("%w: asset browsing is not implemented yet", ErrNotImplemented)
+}
+
+func (nc *Command) runDiscovery(ctx context.Context) (*nextcloud.MemoriesDiscovery, error) {
+	discover := nc.discover
+	if discover == nil {
+		discover = discoverMemories
+	}
+
+	discovery, err := discover(ctx, nextcloud.Config{
+		BaseURL:       nc.NextcloudURL,
+		Username:      nc.NextcloudUser,
+		Password:      nc.NextcloudPassword,
+		SkipVerifySSL: nc.NextcloudSkipVerifySSL,
+		Timeout:       nc.NextcloudClientTimeout,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(nc.TimelineRoots) == 0 {
+		return discovery, nil
+	}
+
+	for _, requestedRoot := range nc.TimelineRoots {
+		if !slices.Contains(discovery.TimelineRoots, requestedRoot) {
+			return nil, fmt.Errorf("requested --timeline-root %q is not part of the configured Memories timeline roots: %s", requestedRoot, strings.Join(discovery.TimelineRoots, ", "))
+		}
+	}
+
+	return discovery, nil
 }
 
 func (nc *Command) intentSummary() string {
@@ -134,6 +180,60 @@ func (nc *Command) intentSummary() string {
 		fmt.Sprintf("  allow-unindexed: %t", nc.AllowUnindexed),
 		fmt.Sprintf("  skip-verify-ssl: %t", nc.NextcloudSkipVerifySSL),
 	}, "\n")
+}
+
+func (nc *Command) discoverySummary(discovery *nextcloud.MemoriesDiscovery) string {
+	uid := "unknown"
+	if discovery.Describe.UID != nil && *discovery.Describe.UID != "" {
+		uid = *discovery.Describe.UID
+	}
+
+	selectedRoots := discovery.TimelineRoots
+	if len(nc.TimelineRoots) > 0 {
+		selectedRoots = nc.TimelineRoots
+	}
+
+	lines := []string{
+		"Nextcloud Memories discovery",
+		fmt.Sprintf("  nextcloud-base-url: %s", discovery.BaseURL),
+		fmt.Sprintf("  dav-root: %s", discovery.DAVRoot),
+		fmt.Sprintf("  nextcloud-version: %s", discovery.Capabilities.VersionString),
+		fmt.Sprintf("  nextcloud-product: %s", strings.TrimSpace(strings.Join([]string{discovery.Capabilities.ProductName, discovery.Capabilities.Edition}, " "))),
+		fmt.Sprintf("  memories-version: %s", discovery.Describe.Version),
+		fmt.Sprintf("  authenticated-user: %s", uid),
+		fmt.Sprintf("  memories-base-url: %s", discovery.Describe.BaseURL),
+		"  configured-timeline-roots:",
+	}
+	for _, root := range discovery.TimelineRoots {
+		lines = append(lines, fmt.Sprintf("    - %s", root))
+	}
+	lines = append(lines,
+		"  selected-timeline-roots:",
+	)
+	for _, root := range selectedRoots {
+		lines = append(lines, fmt.Sprintf("    - %s", root))
+	}
+	lines = append(lines,
+		fmt.Sprintf("  folders-path: %s", discovery.Config.FoldersPath),
+		fmt.Sprintf("  albums-enabled: %t", discovery.Config.AlbumsEnabled),
+		fmt.Sprintf("  system-tags-enabled: %t", discovery.Config.SystemTagsEnabled),
+		fmt.Sprintf("  preview-generator-enabled: %t", discovery.Config.PreviewGeneratorEnabled),
+		fmt.Sprintf("  recognize-enabled: %t", discovery.Config.RecognizeEnabled),
+		fmt.Sprintf("  facerecognition-enabled: %t", discovery.Config.FaceRecognitionEnabled),
+	)
+
+	return strings.Join(lines, "\n")
+}
+
+func discoverMemories(ctx context.Context, cfg nextcloud.Config) (*nextcloud.MemoriesDiscovery, error) {
+	client, err := nextcloud.NewClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect to Nextcloud DAV endpoint: %w", err)
+	}
+	return nextcloud.DiscoverMemories(ctx, client)
 }
 
 func (nc *Command) validate() error {

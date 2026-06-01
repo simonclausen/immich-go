@@ -37,7 +37,10 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Chose `gowebdav` for DAV access and custom `net/http` for OCS and Memories endpoints
   - Added tests for URL normalization, request construction, and OCS header behavior
 
-- [ ] Implement source authentication and discovery
+- [x] Implement source authentication and discovery
+  - Added OCS and Memories discovery helpers in `internal/nextcloud`
+  - Wired `--discover-only` to validate DAV access and print detected source configuration
+  - Added tests for discovery responses, empty timeline roots, and command output
 
 - [ ] Implement file enumeration from configured Memories roots
 
