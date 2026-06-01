@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Phase**: Source discovery and base asset enumeration
+**Phase**: Source discovery, base asset enumeration, and upload-path optimization
 
 **Last Updated**: 2026-06-01
 
 **Summary**:
 
-The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for DAV plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can now enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Public upload docs remain unchanged until more of the source behavior is shipped.
+The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for DAV plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can now enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Upload preparation now reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Public upload docs remain unchanged until more of the source behavior is shipped.
 
 ---
 
@@ -46,6 +46,11 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Added a read-only DAV-backed filesystem wrapper in `internal/nextcloud`
   - Added `Browse()` for the Nextcloud Memories adapter so imports now emit uploadable assets
   - Filters supported media, ignores common banned/useless files, and deduplicates overlapping selected roots
+
+- [x] Reuse cached source reads across checksum and upload
+  - Centralized asset cache creation so checksum and upload share the same cached representation
+  - Avoids a second source fetch for non-local readers such as Nextcloud WebDAV
+  - Added regression tests that assert a single source open across checksum and upload flows
 
 - [ ] Implement metadata and album mapping
 
