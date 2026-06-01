@@ -198,7 +198,7 @@ func (nc *Command) prepareImport(ctx context.Context) error {
 	if discovery.Describe.UID != nil && strings.TrimSpace(*discovery.Describe.UID) != "" {
 		uid = strings.TrimSpace(*discovery.Describe.UID)
 	}
-	sourceFS, err := nextcloud.NewWebDAVFS(client, uid)
+	sourceFS, err := nextcloud.NewWebDAVFS(ctx, client, uid)
 	if err != nil {
 		return err
 	}

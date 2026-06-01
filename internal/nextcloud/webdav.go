@@ -1,12 +1,14 @@
 package nextcloud
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
 	pathpkg "path"
 	"strings"
+	"sync"
 )
 
 type davReadClient interface {
@@ -18,6 +20,7 @@ type davReadClient interface {
 // WebDAVFS exposes a read-only fs.FS view over the authenticated Nextcloud DAV
 // files tree for a single user.
 type WebDAVFS struct {
+	ctx      context.Context
 	client   davReadClient
 	rootPath string
 	name     string
@@ -28,16 +31,20 @@ var _ fs.ReadDirFS = (*WebDAVFS)(nil)
 var _ fs.StatFS = (*WebDAVFS)(nil)
 
 // NewWebDAVFS creates a read-only filesystem rooted at /files/{uid}.
-func NewWebDAVFS(client *Client, uid string) (*WebDAVFS, error) {
+func NewWebDAVFS(ctx context.Context, client *Client, uid string) (*WebDAVFS, error) {
 	uid = strings.TrimSpace(uid)
 	if uid == "" {
 		return nil, errors.New("missing Nextcloud user ID for DAV browsing")
 	}
-	return newWebDAVFS(client.DAV(), pathpkg.Join("/files", uid), "nextcloud:"+uid), nil
+	return newWebDAVFS(ctx, client.DAV(), pathpkg.Join("/files", uid), "nextcloud:"+uid), nil
 }
 
-func newWebDAVFS(client davReadClient, rootPath string, name string) *WebDAVFS {
+func newWebDAVFS(ctx context.Context, client davReadClient, rootPath string, name string) *WebDAVFS {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &WebDAVFS{
+		ctx:      ctx,
 		client:   client,
 		rootPath: pathpkg.Clean(rootPath),
 		name:     name,
@@ -66,7 +73,7 @@ func (wfs *WebDAVFS) Open(name string) (fs.File, error) {
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: cleanedName, Err: err}
 	}
-	return &webdavFile{ReadCloser: stream, info: info}, nil
+	return &webdavFile{ReadCloser: newCancelableReadCloser(wfs.ctx, stream), info: info}, nil
 }
 
 func (wfs *WebDAVFS) Stat(name string) (fs.FileInfo, error) {
@@ -174,4 +181,48 @@ func (wd *webdavDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	chunk := wd.entries[wd.offset : wd.offset+n]
 	wd.offset += n
 	return chunk, nil
+}
+
+type cancelableReadCloser struct {
+	ctx   context.Context
+	rc    io.ReadCloser
+	done  chan struct{}
+	close sync.Once
+}
+
+func newCancelableReadCloser(ctx context.Context, rc io.ReadCloser) io.ReadCloser {
+	if ctx == nil {
+		return rc
+	}
+	c := &cancelableReadCloser{
+		ctx:  ctx,
+		rc:   rc,
+		done: make(chan struct{}),
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = c.Close()
+		case <-c.done:
+		}
+	}()
+	return c
+}
+
+func (c *cancelableReadCloser) Read(p []byte) (int, error) {
+	select {
+	case <-c.ctx.Done():
+		return 0, c.ctx.Err()
+	default:
+	}
+	return c.rc.Read(p)
+}
+
+func (c *cancelableReadCloser) Close() error {
+	var err error
+	c.close.Do(func() {
+		close(c.done)
+		err = c.rc.Close()
+	})
+	return err
 }

@@ -1,10 +1,13 @@
 package nextcloud
 
 import (
+	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,7 +19,7 @@ func TestNewWebDAVFSRejectsEmptyUID(t *testing.T) {
 	t.Parallel()
 
 	client := &Client{}
-	_, err := NewWebDAVFS(client, " ")
+	_, err := NewWebDAVFS(context.Background(), client, " ")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "user ID")
 }
@@ -43,7 +46,7 @@ func TestWebDAVFSReadDirAndOpen(t *testing.T) {
 		},
 	}
 
-	fsys := newWebDAVFS(dav, "/files/alice", "nextcloud:alice")
+	fsys := newWebDAVFS(context.Background(), dav, "/files/alice", "nextcloud:alice")
 
 	entries, err := fs.ReadDir(fsys, "Photos")
 	require.NoError(t, err)
@@ -62,16 +65,55 @@ func TestWebDAVFSReadDirAndOpen(t *testing.T) {
 func TestWebDAVFSRejectsPathEscape(t *testing.T) {
 	t.Parallel()
 
-	fsys := newWebDAVFS(&fakeDAVClient{}, "/files/alice", "nextcloud:alice")
+	fsys := newWebDAVFS(context.Background(), &fakeDAVClient{}, "/files/alice", "nextcloud:alice")
 	_, err := fsys.Stat("../secrets.txt")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "invalid argument")
 }
 
+func TestWebDAVFSOpenCancelsActiveRead(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	blocker := newBlockingReadCloser()
+	dav := &fakeDAVClient{
+		stats: map[string]fakeFileInfo{
+			"/files/alice":                  {name: "alice", dir: true},
+			"/files/alice/Photos":           {name: "Photos", dir: true},
+			"/files/alice/Photos/video.mp4": {name: "video.mp4", size: 42},
+		},
+		filesReader: map[string]io.ReadCloser{
+			"/files/alice/Photos/video.mp4": blocker,
+		},
+	}
+
+	fsys := newWebDAVFS(ctx, dav, "/files/alice", "nextcloud:alice")
+	f, err := fsys.Open("Photos/video.mp4")
+	require.NoError(t, err)
+
+	readDone := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := f.Read(buf)
+		readDone <- err
+	}()
+
+	cancel()
+
+	select {
+	case err := <-readDone:
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, context.Canceled) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed))
+	case <-time.After(2 * time.Second):
+		t.Fatal("read did not unblock after context cancellation")
+	}
+}
+
 type fakeDAVClient struct {
-	stats map[string]fakeFileInfo
-	dirs  map[string][]fakeFileInfo
-	files map[string]string
+	stats       map[string]fakeFileInfo
+	dirs        map[string][]fakeFileInfo
+	files       map[string]string
+	filesReader map[string]io.ReadCloser
 }
 
 func (f *fakeDAVClient) ReadDir(path string) ([]os.FileInfo, error) {
@@ -88,6 +130,9 @@ func (f *fakeDAVClient) ReadDir(path string) ([]os.FileInfo, error) {
 }
 
 func (f *fakeDAVClient) ReadStream(path string) (io.ReadCloser, error) {
+	if reader, ok := f.filesReader[path]; ok {
+		return reader, nil
+	}
 	b, ok := f.files[path]
 	if !ok {
 		return nil, fs.ErrNotExist
@@ -121,3 +166,24 @@ func (f fakeFileInfo) Mode() fs.FileMode {
 func (f fakeFileInfo) ModTime() time.Time { return f.modTime }
 func (f fakeFileInfo) IsDir() bool        { return f.dir }
 func (f fakeFileInfo) Sys() any           { return nil }
+
+type blockingReadCloser struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newBlockingReadCloser() *blockingReadCloser {
+	return &blockingReadCloser{closed: make(chan struct{})}
+}
+
+func (b *blockingReadCloser) Read(_ []byte) (int, error) {
+	<-b.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (b *blockingReadCloser) Close() error {
+	b.once.Do(func() {
+		close(b.closed)
+	})
+	return nil
+}
