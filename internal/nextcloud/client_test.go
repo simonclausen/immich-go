@@ -3,11 +3,14 @@ package nextcloud
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/studio-b12/gowebdav"
 )
 
 func TestNewClientNormalizesBaseURLAndDAVRoot(t *testing.T) {
@@ -25,6 +28,7 @@ func TestNewClientNormalizesBaseURLAndDAVRoot(t *testing.T) {
 	assert.Equal(t, "https://cloud.example.com/nextcloud/remote.php/dav", client.DAVRoot())
 	assert.Equal(t, 3*time.Minute, client.HTTPClient().Timeout)
 	require.NotNil(t, client.DAV())
+	assert.Zero(t, davHTTPClient(t, client.DAV()).Timeout)
 	transport, ok := client.HTTPClient().Transport.(*http.Transport)
 	require.True(t, ok)
 	require.NotNil(t, transport.TLSClientConfig)
@@ -145,4 +149,17 @@ func TestConnectHonorsCancelledContext(t *testing.T) {
 
 	err = client.Connect(ctx)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func davHTTPClient(t *testing.T, client *gowebdav.Client) *http.Client {
+	t.Helper()
+
+	value := reflect.ValueOf(client).Elem().FieldByName("c")
+	require.True(t, value.IsValid())
+	require.True(t, value.CanAddr())
+
+	unsafeValue := reflect.NewAt(value.Type(), unsafe.Pointer(value.UnsafeAddr())).Elem()
+	httpClient, ok := unsafeValue.Interface().(*http.Client)
+	require.True(t, ok)
+	return httpClient
 }

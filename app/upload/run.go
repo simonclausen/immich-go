@@ -102,9 +102,11 @@ func (uc *UpCmd) finishing(ctx context.Context) error {
 	uc.tagsCache.Close()
 
 	// Resume immich background jobs if requested
-	err := uc.resumeJobs(ctx)
-	if err != nil {
-		return err
+	if uc.client.PauseImmichBackgroundJobs {
+		err := uc.resumeJobs(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Generate FileProcessor report

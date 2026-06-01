@@ -57,7 +57,10 @@ func NewClient(cfg Config) (*Client, error) {
 	davRootURL := baseURL.ResolveReference(&url.URL{Path: joinURLPath(baseURL.Path, "remote.php/dav")})
 	davClient := gowebdav.NewClient(davRootURL.String(), strings.TrimSpace(cfg.Username), strings.TrimSpace(cfg.Password))
 	davClient.SetTransport(transport)
-	davClient.SetTimeout(cfg.Timeout)
+	// Keep the timeout on the plain HTTP client for OCS and Memories API calls,
+	// but do not apply a whole-request timeout to DAV operations. Large imports
+	// stream file bodies and PROPFIND directory listings from Nextcloud; using the
+	// same total deadline there causes long reads to fail mid-transfer.
 
 	return &Client{
 		baseURL:    baseURL,
