@@ -86,7 +86,7 @@ func GetOCSCapabilities(ctx context.Context, client *Client) (*OCSCapabilities, 
 	if err := doJSON(req, client, &envelope); err != nil {
 		return nil, err
 	}
-	if envelope.OCS.Meta.StatusCode != 100 || !strings.EqualFold(envelope.OCS.Meta.Status, "ok") {
+	if !strings.EqualFold(envelope.OCS.Meta.Status, "ok") || !isSuccessfulOCSStatusCode(envelope.OCS.Meta.StatusCode) {
 		return nil, fmt.Errorf("OCS capabilities request failed: %s (%d)", envelope.OCS.Meta.Message, envelope.OCS.Meta.StatusCode)
 	}
 
@@ -95,6 +95,15 @@ func GetOCSCapabilities(ctx context.Context, client *Client) (*OCSCapabilities, 
 		Edition:       envelope.OCS.Data.Version.Edition,
 		ProductName:   envelope.OCS.Data.Version.ProductName,
 	}, nil
+}
+
+func isSuccessfulOCSStatusCode(statusCode int) bool {
+	switch statusCode {
+	case 100, 200:
+		return true
+	default:
+		return false
+	}
 }
 
 // DescribeMemories fetches the public API description exposed by the Memories app.

@@ -125,6 +125,7 @@ func TestNewMemoriesRequestUsesExplicitIndexPath(t *testing.T) {
 	req, err := client.NewMemoriesRequest(context.Background(), http.MethodGet, "api/describe", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "https://cloud.example.com/nextcloud/index.php/apps/memories/api/describe", req.URL.String())
+	assert.Equal(t, "true", req.Header.Get("OCS-APIRequest"))
 	assert.Equal(t, "application/json", req.Header.Get("Accept"))
 }
 

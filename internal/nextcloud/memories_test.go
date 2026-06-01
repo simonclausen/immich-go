@@ -36,6 +36,22 @@ func TestGetOCSCapabilities(t *testing.T) {
 	assert.Equal(t, "Nextcloud", capabilities.ProductName)
 }
 
+func TestGetOCSCapabilitiesAcceptsStatusCode200(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/ocs/v2.php/cloud/capabilities", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"ocs":{"meta":{"status":"ok","statuscode":200,"message":"OK"},"data":{"version":{"string":"31.0.0","edition":"community","productname":"Nextcloud"}}}}`)
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	capabilities, err := GetOCSCapabilities(context.Background(), client)
+	require.NoError(t, err)
+	assert.Equal(t, "31.0.0", capabilities.VersionString)
+}
+
 func TestDiscoverMemories(t *testing.T) {
 	t.Parallel()
 

@@ -124,11 +124,14 @@ func (c *Client) NewOCSRequest(ctx context.Context, method string, relativePath 
 
 // NewMemoriesRequest creates an authenticated request for the Memories app routes.
 // It uses the explicit index.php entrypoint so it does not rely on rewrite rules.
+// The OCS-APIRequest header is added as well because Nextcloud accepts it as a
+// CSRF bypass signal for token-authenticated API clients.
 func (c *Client) NewMemoriesRequest(ctx context.Context, method string, relativePath string, body io.Reader) (*http.Request, error) {
 	req, err := c.NewRequest(ctx, method, "index.php/apps/memories/"+strings.TrimPrefix(relativePath, "/"), body)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("OCS-APIRequest", "true")
 	req.Header.Set("Accept", "application/json")
 	return req, nil
 }
