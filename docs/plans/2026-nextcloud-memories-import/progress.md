@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Phase**: Command scaffold and client-layer implementation
+**Phase**: Source discovery and base asset enumeration
 
 **Last Updated**: 2026-06-01
 
 **Summary**:
 
-The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The initial internal Nextcloud client layer now exists and uses `gowebdav` for DAV plus custom `net/http` for non-DAV APIs. Public upload docs remain unchanged until the command exists.
+The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for DAV plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can now enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Public upload docs remain unchanged until more of the source behavior is shipped.
 
 ---
 
@@ -42,11 +42,16 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Wired `--discover-only` to validate DAV access and print detected source configuration
   - Added tests for discovery responses, empty timeline roots, and command output
 
-- [ ] Implement file enumeration from configured Memories roots
+- [x] Implement file enumeration from configured Memories roots
+  - Added a read-only DAV-backed filesystem wrapper in `internal/nextcloud`
+  - Added `Browse()` for the Nextcloud Memories adapter so imports now emit uploadable assets
+  - Filters supported media, ignores common banned/useless files, and deduplicates overlapping selected roots
 
 - [ ] Implement metadata and album mapping
 
-- [ ] Add tests
+- [x] Add focused tests for discovery and base enumeration
+  - Added DAV filesystem tests for path handling and file reads
+  - Added adapter browse tests for media filtering and overlapping-root deduplication
 
 - [ ] Promote draft docs into public docs after implementation ships
 

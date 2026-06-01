@@ -3,10 +3,11 @@ package nextcloudmemories
 import (
 	"bytes"
 	"context"
-	"errors"
 	"testing"
+	"testing/fstest"
 	"time"
 
+	"github.com/simulot/immich-go/adapters"
 	"github.com/simulot/immich-go/app"
 	"github.com/simulot/immich-go/internal/nextcloud"
 	"github.com/spf13/cobra"
@@ -99,25 +100,46 @@ func TestCommandValidate(t *testing.T) {
 	})
 }
 
-func TestCommandRunReturnsExplicitNotImplemented(t *testing.T) {
+func TestCommandRunRequiresRunner(t *testing.T) {
 	t.Parallel()
 
-	base := Command{
+	nc := Command{
 		NextcloudURL:           "https://cloud.example.com",
 		NextcloudUser:          "alice",
 		NextcloudPassword:      "secret",
 		NextcloudClientTimeout: 5 * time.Minute,
 	}
 
-	t.Run("import path", func(t *testing.T) {
-		t.Parallel()
+	err := nc.Run(&cobra.Command{}, nil)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "runner is not configured")
+}
 
-		nc := base
-		err := nc.Run(&cobra.Command{}, nil)
-		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrNotImplemented))
-		assert.ErrorContains(t, err, "asset browsing")
-	})
+func TestCommandRunImportUsesRunner(t *testing.T) {
+	t.Parallel()
+
+	nc := Command{
+		NextcloudURL:           "https://cloud.example.com",
+		NextcloudUser:          "alice",
+		NextcloudPassword:      "secret",
+		NextcloudClientTimeout: 5 * time.Minute,
+		app:                    newTestApp(t),
+		sourceFS: fstest.MapFS{
+			"Photos/IMG_0001.JPG": {Data: []byte("image")},
+		},
+		selectedRoots: []string{"/Photos"},
+	}
+
+	called := false
+	err := nc.Run(&cobra.Command{}, runnerFunc(func(cmd *cobra.Command, adapter adapters.Reader) error {
+		called = true
+		groups := collectGroups(adapter.Browse(context.Background()))
+		require.Len(t, groups, 1)
+		assert.Equal(t, "Photos/IMG_0001.JPG", groups[0].Assets[0].File.Name())
+		return nil
+	}))
+	require.NoError(t, err)
+	assert.True(t, called)
 }
 
 func TestCommandRunDiscoverOnly(t *testing.T) {
@@ -240,4 +262,10 @@ func TestCommandRejectsPositionalArguments(t *testing.T) {
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+type runnerFunc func(cmd *cobra.Command, adapter adapters.Reader) error
+
+func (fn runnerFunc) Run(cmd *cobra.Command, adapter adapters.Reader) error {
+	return fn(cmd, adapter)
 }

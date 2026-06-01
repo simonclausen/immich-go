@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	pathpkg "path"
 	"slices"
@@ -16,10 +17,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
-
-// ErrNotImplemented reports that the Nextcloud Memories importer is still being
-// built beyond the currently available scaffold and discovery flow.
-var ErrNotImplemented = errors.New("Nextcloud Memories import is not implemented yet")
 
 // Command holds the CLI state for the Nextcloud Memories source scaffold.
 type Command struct {
@@ -35,6 +32,10 @@ type Command struct {
 
 	discover func(context.Context, nextcloud.Config) (*nextcloud.MemoriesDiscovery, error)
 	app      *app.Application
+
+	discovery     *nextcloud.MemoriesDiscovery
+	sourceFS      fs.FS
+	selectedRoots []string
 }
 
 func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
@@ -97,13 +98,15 @@ being built. The current branch uses it to iterate on the UX and flag contract s
 	return cmd
 }
 
-// Run validates the planned UX surface and fails explicitly until the source-side
-// discovery and browsing layers are implemented.
+// Run validates the source configuration, prepares the selected Memories scope,
+// and delegates the actual upload lifecycle to the shared upload runner.
 func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
 	if err := nc.validate(); err != nil {
 		return err
 	}
+	ctx := context.Background()
 	if cmd != nil {
+		ctx = cmd.Context()
 		cmd.Println(nc.intentSummary())
 	}
 
@@ -112,10 +115,6 @@ func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
 	}
 
 	if nc.DiscoverOnly {
-		ctx := context.Background()
-		if cmd != nil {
-			ctx = cmd.Context()
-		}
 		discovery, err := nc.runDiscovery(ctx)
 		if err != nil {
 			return err
@@ -126,8 +125,16 @@ func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
 		return nil
 	}
 
-	_ = runner
-	return fmt.Errorf("%w: asset browsing is not implemented yet", ErrNotImplemented)
+	if runner == nil {
+		return errors.New("Nextcloud Memories import runner is not configured")
+	}
+	if err := nc.prepareImport(ctx); err != nil {
+		return err
+	}
+	if nc.SyncAlbums && nc.app != nil {
+		nc.app.Log().Warn("Nextcloud Memories album recreation is not implemented yet; continuing with asset import only")
+	}
+	return runner.Run(cmd, nc)
 }
 
 func (nc *Command) runDiscovery(ctx context.Context) (*nextcloud.MemoriesDiscovery, error) {
@@ -147,8 +154,64 @@ func (nc *Command) runDiscovery(ctx context.Context) (*nextcloud.MemoriesDiscove
 		return nil, err
 	}
 
+	if _, err := nc.resolveSelectedRoots(discovery); err != nil {
+		return nil, err
+	}
+	return discovery, nil
+}
+
+func (nc *Command) prepareImport(ctx context.Context) error {
+	if nc.sourceFS != nil {
+		if len(nc.selectedRoots) == 0 {
+			nc.selectedRoots = slices.Clone(nc.TimelineRoots)
+		}
+		if len(nc.selectedRoots) == 0 {
+			return errors.New("Nextcloud Memories import has no selected timeline roots")
+		}
+		return nil
+	}
+
+	client, err := nextcloud.NewClient(nextcloud.Config{
+		BaseURL:       nc.NextcloudURL,
+		Username:      nc.NextcloudUser,
+		Password:      nc.NextcloudPassword,
+		SkipVerifySSL: nc.NextcloudSkipVerifySSL,
+		Timeout:       nc.NextcloudClientTimeout,
+	})
+	if err != nil {
+		return err
+	}
+	if err := client.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect to Nextcloud DAV endpoint: %w", err)
+	}
+
+	discovery, err := nextcloud.DiscoverMemories(ctx, client)
+	if err != nil {
+		return err
+	}
+	selectedRoots, err := nc.resolveSelectedRoots(discovery)
+	if err != nil {
+		return err
+	}
+
+	uid := nc.NextcloudUser
+	if discovery.Describe.UID != nil && strings.TrimSpace(*discovery.Describe.UID) != "" {
+		uid = strings.TrimSpace(*discovery.Describe.UID)
+	}
+	sourceFS, err := nextcloud.NewWebDAVFS(client, uid)
+	if err != nil {
+		return err
+	}
+
+	nc.discovery = discovery
+	nc.selectedRoots = selectedRoots
+	nc.sourceFS = sourceFS
+	return nil
+}
+
+func (nc *Command) resolveSelectedRoots(discovery *nextcloud.MemoriesDiscovery) ([]string, error) {
 	if len(nc.TimelineRoots) == 0 {
-		return discovery, nil
+		return slices.Clone(discovery.TimelineRoots), nil
 	}
 
 	for _, requestedRoot := range nc.TimelineRoots {
@@ -157,7 +220,7 @@ func (nc *Command) runDiscovery(ctx context.Context) (*nextcloud.MemoriesDiscove
 		}
 	}
 
-	return discovery, nil
+	return slices.Clone(nc.TimelineRoots), nil
 }
 
 func (nc *Command) intentSummary() string {
