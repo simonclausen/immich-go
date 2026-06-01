@@ -129,6 +129,50 @@ func TestCommandRunReturnsExplicitNotImplemented(t *testing.T) {
 	})
 }
 
+func TestCommandIntentSummary(t *testing.T) {
+	t.Parallel()
+
+	t.Run("auto discover roots", func(t *testing.T) {
+		t.Parallel()
+
+		nc := &Command{
+			NextcloudURL:      "https://cloud.example.com",
+			NextcloudUser:     "alice",
+			DiscoverOnly:      true,
+			SyncAlbums:        true,
+			AllowUnindexed:    false,
+			TimelineRoots:     nil,
+			NextcloudPassword: "secret",
+		}
+
+		summary := nc.intentSummary()
+		assert.Contains(t, summary, "mode: discover-only")
+		assert.Contains(t, summary, "timeline-roots: all configured Memories timeline roots")
+		assert.Contains(t, summary, "sync-albums: true")
+		assert.NotContains(t, summary, "secret")
+	})
+
+	t.Run("restricted roots", func(t *testing.T) {
+		t.Parallel()
+
+		nc := &Command{
+			NextcloudURL:           "https://cloud.example.com",
+			NextcloudUser:          "alice",
+			SyncAlbums:             false,
+			AllowUnindexed:         true,
+			NextcloudSkipVerifySSL: true,
+			TimelineRoots:          []string{"/Photos", "/Scans"},
+		}
+
+		summary := nc.intentSummary()
+		assert.Contains(t, summary, "mode: import")
+		assert.Contains(t, summary, "timeline-roots: /Photos, /Scans")
+		assert.Contains(t, summary, "sync-albums: false")
+		assert.Contains(t, summary, "allow-unindexed: true")
+		assert.Contains(t, summary, "skip-verify-ssl: true")
+	})
+}
+
 func TestCommandRejectsPositionalArguments(t *testing.T) {
 	t.Parallel()
 

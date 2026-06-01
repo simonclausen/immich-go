@@ -97,6 +97,9 @@ func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
 	if err := nc.validate(); err != nil {
 		return err
 	}
+	if cmd != nil {
+		cmd.Println(nc.intentSummary())
+	}
 
 	if nc.app != nil {
 		nc.app.Log().Message("Nextcloud Memories command scaffold invoked (discover-only=%t)", nc.DiscoverOnly)
@@ -108,6 +111,29 @@ func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
 
 	_ = runner
 	return fmt.Errorf("%w: asset browsing is not implemented yet", ErrNotImplemented)
+}
+
+func (nc *Command) intentSummary() string {
+	mode := "import"
+	if nc.DiscoverOnly {
+		mode = "discover-only"
+	}
+
+	rootScope := "all configured Memories timeline roots"
+	if len(nc.TimelineRoots) > 0 {
+		rootScope = strings.Join(nc.TimelineRoots, ", ")
+	}
+
+	return strings.Join([]string{
+		"Nextcloud Memories scaffold",
+		fmt.Sprintf("  mode: %s", mode),
+		fmt.Sprintf("  nextcloud-url: %s", nc.NextcloudURL),
+		fmt.Sprintf("  nextcloud-user: %s", nc.NextcloudUser),
+		fmt.Sprintf("  timeline-roots: %s", rootScope),
+		fmt.Sprintf("  sync-albums: %t", nc.SyncAlbums),
+		fmt.Sprintf("  allow-unindexed: %t", nc.AllowUnindexed),
+		fmt.Sprintf("  skip-verify-ssl: %t", nc.NextcloudSkipVerifySSL),
+	}, "\n")
 }
 
 func (nc *Command) validate() error {

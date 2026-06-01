@@ -30,6 +30,7 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Added a hidden `from-nextcloud-memories` command shell with alias `from-nc-memories`
   - Added source flag registration, normalization, and validation for the planned UX contract
   - Added tests for command metadata, flag validation, and explicit not-implemented failure paths
+  - Added a human-readable scaffold summary so the CLI UX can be reviewed before discovery exists
 
 - [ ] Implement source authentication and discovery
 
