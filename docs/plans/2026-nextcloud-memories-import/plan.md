@@ -7,11 +7,17 @@
 - `internal/nextcloud/...`
 - `adapters/nextcloudmemories/...`
 
+**Dependency choice**:
+
+- Use `github.com/studio-b12/gowebdav` for DAV access
+- Keep OCS and Memories integrations in custom `net/http` code
+
 **Changes**:
 
-- Add a minimal Nextcloud client for authenticated WebDAV and HTTP API calls
+- Add a minimal Nextcloud client for authenticated DAV and HTTP API calls
 - Support source authentication with username plus password or app password
 - Add source TLS and timeout configuration
+- Normalize user-provided base URLs and derive the DAV root automatically
 
 **Testable**:
 
@@ -33,6 +39,8 @@
 
 **Changes**:
 
+- Use the internal custom HTTP client for OCS and Memories discovery calls
+- Keep DAV browsing separate from discovery so the app-specific logic stays explicit
 - Check that the Memories app is installed and reachable
 - Read effective user configuration for Memories
 - Resolve configured `timeline_path` values

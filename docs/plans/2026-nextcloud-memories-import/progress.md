@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Phase**: Proposal and UX draft
+**Phase**: Command scaffold and client-layer implementation
 
 **Last Updated**: 2026-06-01
 
 **Summary**:
 
-The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. No production code has been added yet. Public upload docs remain unchanged until the command exists.
+The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The initial internal Nextcloud client layer now exists and uses `gowebdav` for DAV plus custom `net/http` for non-DAV APIs. Public upload docs remain unchanged until the command exists.
 
 ---
 
@@ -31,6 +31,11 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Added source flag registration, normalization, and validation for the planned UX contract
   - Added tests for command metadata, flag validation, and explicit not-implemented failure paths
   - Added a human-readable scaffold summary so the CLI UX can be reviewed before discovery exists
+
+- [x] Choose dependency strategy and add client layer
+  - Added `internal/nextcloud` as the home for the source-side client abstraction
+  - Chose `gowebdav` for DAV access and custom `net/http` for OCS and Memories endpoints
+  - Added tests for URL normalization, request construction, and OCS header behavior
 
 - [ ] Implement source authentication and discovery
 
@@ -85,3 +90,14 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
 - It allows iterative work on command UX in the real CLI surface
 - It avoids advertising a non-functional source in normal command listings
 - Public docs can remain accurate until the command becomes usable
+
+### 2026-06-01: Use `gowebdav` Only For DAV
+
+**Decision**: Use `github.com/studio-b12/gowebdav` for DAV operations, while keeping OCS and Memories calls in `internal/nextcloud` with custom `net/http` code.
+
+**Rationale**:
+
+- DAV is the stable and reusable part of the source integration
+- OCS and Memories endpoints still need importer-specific request shaping and error handling
+- This avoids overcommitting to a niche Nextcloud client dependency that still would not cover Memories properly
+- It keeps the dependency surface small and aligns with the project's preference for minimal external libraries

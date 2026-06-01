@@ -84,6 +84,24 @@ This keeps the command aligned with user intent. If users want arbitrary folder 
 - Warn when unsupported source data will be ignored
 - Reject arbitrary Nextcloud paths that are outside the configured Memories roots
 
+## Client Strategy
+
+Chosen approach: use `github.com/studio-b12/gowebdav` for the DAV file layer and keep OCS plus Memories requests in a custom internal HTTP client.
+
+Why this is the right boundary for `immich-go`:
+
+- It follows the project's dependency discipline: one mature dependency for the stable DAV layer, not a broad new client stack
+- WebDAV is the part we do not want to reimplement by hand: directory listing, stat, stream reads, moves, and request transport handling are already solved well
+- OCS and Memories still require application-specific logic, so a generic Nextcloud CLI or thin wrapper would not remove much importer code
+- Memories APIs are not stable enough to hide behind a third-party dependency without losing control over error handling and compatibility
+- `gowebdav` is better aligned with a source-side reader than newer upload-oriented libraries such as `godav`
+
+Implication for implementation:
+
+- `internal/nextcloud` will own Nextcloud base URL normalization, authentication, and HTTP request helpers
+- DAV browsing and downloads will go through `gowebdav`
+- OCS calls and Memories-specific endpoints will use `net/http` directly through the same internal client package
+
 ## Data Mapping
 
 | Source data | Destination support | Notes |
