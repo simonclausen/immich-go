@@ -14,6 +14,7 @@ import (
 	"github.com/simulot/immich-go/internal/filetypes"
 	"github.com/simulot/immich-go/internal/fshelper"
 	"github.com/simulot/immich-go/internal/namematcher"
+	"github.com/simulot/immich-go/internal/nextcloud"
 )
 
 var defaultBannedFiles = namematcher.MustList(shared.DefaultBannedFiles...)
@@ -50,6 +51,18 @@ func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error 
 	}
 
 	seen := map[string]struct{}{}
+	if searchFS, ok := nc.sourceFS.(interface {
+		SearchFiles(string) ([]nextcloud.SearchEntry, error)
+	}); ok {
+		err := nc.browseSearch(ctx, gOut, searchFS, infoCollector, supportedMedia, processor, seen)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, nextcloud.ErrSearchUnsupported) {
+			return err
+		}
+	}
+
 	for _, root := range nc.selectedRoots {
 		walkRoot := timelineRootToFSPath(root)
 		err := fs.WalkDir(nc.sourceFS, walkRoot, func(name string, entry fs.DirEntry, err error) error {
@@ -69,25 +82,6 @@ func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error 
 				return nil
 			}
 
-			if matchesBanned(defaultBannedFiles, name, false) {
-				if processor != nil {
-					processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), 0, fileevent.DiscoveredBanned, "reason", "banned file")
-				}
-				return nil
-			}
-
-			if _, ok := seen[name]; ok {
-				return nil
-			}
-			seen[name] = struct{}{}
-
-			if supportedMedia.IsUseLess(name) {
-				if processor != nil {
-					processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), 0, fileevent.DiscoveredUnknown, "reason", "useless file")
-				}
-				return nil
-			}
-
 			info, err := entry.Info()
 			if err != nil {
 				if processor != nil {
@@ -96,36 +90,7 @@ func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error 
 				return nil
 			}
 
-			mediaType := supportedMedia.TypeFromExt(path.Ext(name))
-			switch mediaType {
-			case filetypes.TypeSidecar:
-				if processor != nil {
-					processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), info.Size(), fileevent.DiscoveredSidecar)
-				}
-				return nil
-			case filetypes.TypeImage, filetypes.TypeVideo:
-			default:
-				if processor != nil {
-					processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), info.Size(), fileevent.DiscoveredUnsupported, "reason", "unsupported file type")
-				}
-				return nil
-			}
-
-			asset := nc.assetFromInfo(name, info, infoCollector)
-			if processor != nil {
-				discoveryCode := fileevent.DiscoveredImage
-				if mediaType == filetypes.TypeVideo {
-					discoveryCode = fileevent.DiscoveredVideo
-				}
-				processor.RecordAssetDiscovered(ctx, asset.File, info.Size(), discoveryCode)
-			}
-
-			select {
-			case gOut <- assets.NewGroup(assets.GroupByNone, asset):
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+			return nc.emitAsset(ctx, gOut, seen, name, info, infoCollector, supportedMedia, processor)
 		})
 		if err != nil {
 			return err
@@ -133,6 +98,91 @@ func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error 
 	}
 
 	return nil
+}
+
+func (nc *Command) browseSearch(ctx context.Context, gOut chan<- *assets.Group, searchFS interface {
+	SearchFiles(string) ([]nextcloud.SearchEntry, error)
+}, infoCollector *filenames.InfoCollector, supportedMedia filetypes.SupportedMedia, processor interface {
+	RecordAssetDiscovered(context.Context, fshelper.FSAndName, int64, fileevent.Code)
+	RecordNonAsset(context.Context, fshelper.FSAndName, int64, fileevent.Code, ...any)
+}, seen map[string]struct{}) error {
+	for _, root := range nc.selectedRoots {
+		entries, err := searchFS.SearchFiles(timelineRootToFSPath(root))
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			if entry.Info.IsDir() {
+				continue
+			}
+			if err := nc.emitAsset(ctx, gOut, seen, entry.Path, entry.Info, infoCollector, supportedMedia, processor); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (nc *Command) emitAsset(ctx context.Context, gOut chan<- *assets.Group, seen map[string]struct{}, name string, info fs.FileInfo, infoCollector *filenames.InfoCollector, supportedMedia filetypes.SupportedMedia, processor interface {
+	RecordAssetDiscovered(context.Context, fshelper.FSAndName, int64, fileevent.Code)
+	RecordNonAsset(context.Context, fshelper.FSAndName, int64, fileevent.Code, ...any)
+}) error {
+	if matchesBanned(defaultBannedFiles, name, false) {
+		if processor != nil {
+			processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), 0, fileevent.DiscoveredBanned, "reason", "banned file")
+		}
+		return nil
+	}
+
+	if _, ok := seen[name]; ok {
+		return nil
+	}
+	seen[name] = struct{}{}
+
+	if supportedMedia.IsUseLess(name) {
+		if processor != nil {
+			processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), 0, fileevent.DiscoveredUnknown, "reason", "useless file")
+		}
+		return nil
+	}
+
+	mediaType := supportedMedia.TypeFromExt(path.Ext(name))
+	switch mediaType {
+	case filetypes.TypeSidecar:
+		if processor != nil {
+			processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), info.Size(), fileevent.DiscoveredSidecar)
+		}
+		return nil
+	case filetypes.TypeImage, filetypes.TypeVideo:
+	default:
+		if processor != nil {
+			processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), info.Size(), fileevent.DiscoveredUnsupported, "reason", "unsupported file type")
+		}
+		return nil
+	}
+
+	asset := nc.assetFromInfo(name, info, infoCollector)
+	if processor != nil {
+		discoveryCode := fileevent.DiscoveredImage
+		if mediaType == filetypes.TypeVideo {
+			discoveryCode = fileevent.DiscoveredVideo
+		}
+		processor.RecordAssetDiscovered(ctx, asset.File, info.Size(), discoveryCode)
+	}
+
+	select {
+	case gOut <- assets.NewGroup(assets.GroupByNone, asset):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (nc *Command) assetFromInfo(name string, info fs.FileInfo, infoCollector *filenames.InfoCollector) *assets.Asset {

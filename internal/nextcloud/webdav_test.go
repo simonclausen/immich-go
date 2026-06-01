@@ -46,7 +46,7 @@ func TestWebDAVFSReadDirAndOpen(t *testing.T) {
 		},
 	}
 
-	fsys := newWebDAVFS(context.Background(), dav, "/files/alice", "nextcloud:alice")
+	fsys := newWebDAVFS(context.Background(), dav, nil, "/files/alice", "nextcloud:alice")
 
 	entries, err := fs.ReadDir(fsys, "Photos")
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestWebDAVFSReadDirAndOpen(t *testing.T) {
 func TestWebDAVFSRejectsPathEscape(t *testing.T) {
 	t.Parallel()
 
-	fsys := newWebDAVFS(context.Background(), &fakeDAVClient{}, "/files/alice", "nextcloud:alice")
+	fsys := newWebDAVFS(context.Background(), &fakeDAVClient{}, nil, "/files/alice", "nextcloud:alice")
 	_, err := fsys.Stat("../secrets.txt")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "invalid argument")
@@ -87,7 +87,7 @@ func TestWebDAVFSOpenCancelsActiveRead(t *testing.T) {
 		},
 	}
 
-	fsys := newWebDAVFS(ctx, dav, "/files/alice", "nextcloud:alice")
+	fsys := newWebDAVFS(ctx, dav, nil, "/files/alice", "nextcloud:alice")
 	f, err := fsys.Open("Photos/video.mp4")
 	require.NoError(t, err)
 
@@ -109,11 +109,45 @@ func TestWebDAVFSOpenCancelsActiveRead(t *testing.T) {
 	}
 }
 
+func TestWebDAVFSSearchFilesReturnsPathsRelativeToRoot(t *testing.T) {
+	t.Parallel()
+
+	searcher := &fakeDAVSearchClient{
+		entries: []SearchEntry{
+			{
+				Path: "/files/alice/Photos/Trips/IMG_0001.JPG",
+				Info: fakeFileInfo{name: "IMG_0001.JPG", size: 5, modTime: time.Unix(1700000002, 0)},
+			},
+		},
+	}
+
+	fsys := newWebDAVFS(context.Background(), &fakeDAVClient{}, searcher, "/files/alice", "nextcloud:alice")
+	entries, err := fsys.SearchFiles("Photos")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Photos/Trips/IMG_0001.JPG", entries[0].Path)
+	assert.Equal(t, "/files/alice/Photos", searcher.scopePath)
+}
+
 type fakeDAVClient struct {
 	stats       map[string]fakeFileInfo
 	dirs        map[string][]fakeFileInfo
 	files       map[string]string
 	filesReader map[string]io.ReadCloser
+}
+
+type fakeDAVSearchClient struct {
+	scopePath string
+	entries   []SearchEntry
+	err       error
+}
+
+func (f *fakeDAVSearchClient) SearchFiles(_ context.Context, scopePath string) ([]SearchEntry, error) {
+	f.scopePath = scopePath
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append([]SearchEntry(nil), f.entries...), nil
 }
 
 func (f *fakeDAVClient) ReadDir(path string) ([]os.FileInfo, error) {

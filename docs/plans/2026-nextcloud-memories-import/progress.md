@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Phase**: Source discovery, base asset enumeration, and upload-path optimization
+**Phase**: Source discovery, optimized asset enumeration, and upload-path optimization
 
 **Last Updated**: 2026-06-01
 
 **Summary**:
 
-The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for DAV plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can now enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Upload preparation now reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Public upload docs remain unchanged until more of the source behavior is shipped.
+The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV and extended DAV APIs. Discovery is implemented, and the hidden command can now enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration now prefers a recursive WebDAV `SEARCH` query, falling back to directory walking when the server does not support it. Upload preparation also reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Public upload docs remain unchanged until more of the source behavior is shipped.
 
 ---
 
@@ -46,6 +46,11 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Added a read-only DAV-backed filesystem wrapper in `internal/nextcloud`
   - Added `Browse()` for the Nextcloud Memories adapter so imports now emit uploadable assets
   - Filters supported media, ignores common banned/useless files, and deduplicates overlapping selected roots
+
+- [x] Prefer recursive WebDAV `SEARCH` for enumeration
+  - Added a Nextcloud DAV `SEARCH` client path for recursive file listings under `/files/{user}/...`
+  - The Memories browser now prefers the `SEARCH` fast path and falls back to `fs.WalkDir` if the server rejects `SEARCH`
+  - Added focused tests for search response parsing, relative path normalization, and browser fast-path use
 
 - [x] Reuse cached source reads across checksum and upload
   - Centralized asset cache creation so checksum and upload share the same cached representation
