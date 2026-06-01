@@ -51,7 +51,7 @@ func TestCommandValidate(t *testing.T) {
 		assert.ErrorContains(t, err, "--nextcloud-password")
 	})
 
-	t.Run("invalid timeline root", func(t *testing.T) {
+	t.Run("normalizes relative timeline root", func(t *testing.T) {
 		t.Parallel()
 
 		nc := &Command{
@@ -62,8 +62,8 @@ func TestCommandValidate(t *testing.T) {
 			TimelineRoots:          []string{"Photos"},
 		}
 		err := nc.validate()
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "must start with /")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"/Photos"}, nc.TimelineRoots)
 	})
 
 	t.Run("normalizes url and roots", func(t *testing.T) {
@@ -74,7 +74,7 @@ func TestCommandValidate(t *testing.T) {
 			NextcloudUser:          " alice ",
 			NextcloudPassword:      " secret ",
 			NextcloudClientTimeout: 5 * time.Minute,
-			TimelineRoots:          []string{" /Photos/ ", "/Photos", "/Scans/"},
+			TimelineRoots:          []string{" //Photos/ ", "/Photos", "/Scans//"},
 		}
 		err := nc.validate()
 		require.NoError(t, err)

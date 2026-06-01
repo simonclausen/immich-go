@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	pathpkg "path"
 	"slices"
 	"strings"
 	"time"
@@ -281,11 +282,15 @@ func normalizeTimelineRoots(roots []string) []string {
 		if root == "" {
 			continue
 		}
-		if root != "/" {
-			root = strings.TrimRight(root, "/")
+		if !strings.HasPrefix(root, "/") {
+			root = "/" + root
 		}
-		if root == "" {
-			root = "/"
+		root = pathpkg.Clean(root)
+		if root == "." || root == "" {
+			continue
+		}
+		if !strings.HasPrefix(root, "/") {
+			root = "/" + root
 		}
 		if _, ok := seen[root]; ok {
 			continue

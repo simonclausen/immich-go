@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	pathpkg "path"
 	"slices"
 	"strings"
 )
@@ -173,13 +174,9 @@ func splitTimelineRoots(raw string) []string {
 	roots := make([]string, 0, len(parts))
 
 	for _, part := range parts {
-		root := strings.TrimSpace(part)
-		root = strings.TrimRight(root, "/")
+		root := normalizeTimelineRoot(part)
 		if root == "" {
 			continue
-		}
-		if !strings.HasPrefix(root, "/") {
-			root = "/" + root
 		}
 		if slices.Contains(roots, root) {
 			continue
@@ -188,6 +185,24 @@ func splitTimelineRoots(raw string) []string {
 	}
 
 	return roots
+}
+
+func normalizeTimelineRoot(raw string) string {
+	root := strings.TrimSpace(raw)
+	if root == "" {
+		return ""
+	}
+	if !strings.HasPrefix(root, "/") {
+		root = "/" + root
+	}
+	root = pathpkg.Clean(root)
+	if root == "." {
+		return ""
+	}
+	if !strings.HasPrefix(root, "/") {
+		root = "/" + root
+	}
+	return root
 }
 
 func doJSON(req *http.Request, client *Client, target any) error {

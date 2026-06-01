@@ -89,6 +89,13 @@ func TestDiscoverMemories(t *testing.T) {
 	}
 }
 
+func TestSplitTimelineRootsNormalizesLeadingSlashes(t *testing.T) {
+	t.Parallel()
+
+	roots := splitTimelineRoots("//Photos; /Scans// ;Photos")
+	assert.Equal(t, []string{"/Photos", "/Scans"}, roots)
+}
+
 func TestDiscoverMemoriesRejectsEmptyTimelineRoots(t *testing.T) {
 	t.Parallel()
 
