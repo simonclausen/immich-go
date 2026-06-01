@@ -26,6 +26,11 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Added a planned command reference and examples in `user-docs-draft.md`
   - Kept public docs unchanged because the command is not implemented
 
+- [x] Scaffold command UX and validation
+  - Added a hidden `from-nextcloud-memories` command shell with alias `from-nc-memories`
+  - Added source flag registration, normalization, and validation for the planned UX contract
+  - Added tests for command metadata, flag validation, and explicit not-implemented failure paths
+
 - [ ] Implement source authentication and discovery
 
 - [ ] Implement file enumeration from configured Memories roots
@@ -69,3 +74,13 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
 - `timeline_path` is the actual Memories library scope
 - `folders_path` is a UI navigation root, not the library definition
 - Importing outside `timeline_path` would violate user expectations
+
+### 2026-06-01: Command Stays Hidden Until Functional
+
+**Decision**: Register the scaffold command as hidden while discovery and browsing are still missing.
+
+**Rationale**:
+
+- It allows iterative work on command UX in the real CLI surface
+- It avoids advertising a non-functional source in normal command listings
+- Public docs can remain accurate until the command becomes usable
