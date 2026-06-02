@@ -8,7 +8,7 @@
 
 **Summary**:
 
-The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV and extended DAV APIs. Discovery is implemented, and the hidden command can now enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration now prefers a recursive WebDAV `SEARCH` query, falling back to directory walking when the server does not support it. Upload preparation also reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Public upload docs remain unchanged until more of the source behavior is shipped.
+The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV and extended DAV APIs. Discovery is implemented, and the hidden command can now enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration now prefers a recursive WebDAV `SEARCH` query, falling back to directory walking when the server does not support it or returns an error. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation also reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Public upload docs remain unchanged until more of the source behavior is shipped.
 
 ---
 
@@ -49,8 +49,14 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
 
 - [x] Prefer recursive WebDAV `SEARCH` for enumeration
   - Added a Nextcloud DAV `SEARCH` client path for recursive file listings under `/files/{user}/...`
-  - The Memories browser now prefers the `SEARCH` fast path and falls back to `fs.WalkDir` if the server rejects `SEARCH`
+  - The Memories browser now prefers the `SEARCH` fast path and falls back to `fs.WalkDir` if the server rejects `SEARCH` or returns a server error
   - Added focused tests for search response parsing, relative path normalization, and browser fast-path use
+  - This path remains unverified against a real server and should be treated as opportunistic for now
+
+- [x] Allow local synced directory as preferred file source
+  - Added `--nextcloud-local-dir` to prefer a local sync directory when opening asset contents while keeping Memories as the source of truth
+  - Enumeration still comes from Nextcloud discovery and DAV-backed browsing, so local files are an optimization path rather than an override
+  - Added focused tests for the layered local-first file source behavior
 
 - [x] Reuse cached source reads across checksum and upload
   - Centralized asset cache creation so checksum and upload share the same cached representation

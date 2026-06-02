@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
+	"os"
 	pathpkg "path"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/simulot/immich-go/adapters"
 	"github.com/simulot/immich-go/app"
+	"github.com/simulot/immich-go/internal/fshelper/osfs"
 	"github.com/simulot/immich-go/internal/nextcloud"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -23,12 +25,15 @@ type Command struct {
 	NextcloudURL           string
 	NextcloudUser          string
 	NextcloudPassword      string
+	NextcloudLocalDir      string
 	NextcloudSkipVerifySSL bool
 	NextcloudClientTimeout time.Duration
 	DiscoverOnly           bool
 	TimelineRoots          []string
 	SyncAlbums             bool
 	AllowUnindexed         bool
+
+	newRemoteFS func(context.Context, *nextcloud.Client, string) (fs.FS, error)
 
 	discover func(context.Context, nextcloud.Config) (*nextcloud.MemoriesDiscovery, error)
 	app      *app.Application
@@ -42,6 +47,7 @@ func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&nc.NextcloudURL, "nextcloud-url", "", "Nextcloud base URL")
 	flags.StringVar(&nc.NextcloudUser, "nextcloud-user", "", "Nextcloud username")
 	flags.StringVar(&nc.NextcloudPassword, "nextcloud-password", "", "Nextcloud password or app password")
+	flags.StringVar(&nc.NextcloudLocalDir, "nextcloud-local-dir", "", "Prefer a local directory containing synced Nextcloud files when opening asset contents, while keeping Memories as the source of truth")
 	flags.BoolVar(&nc.NextcloudSkipVerifySSL, "nextcloud-skip-verify-ssl", false, "Skip TLS verification for the source Nextcloud server")
 	flags.DurationVar(&nc.NextcloudClientTimeout, "nextcloud-client-timeout", 5*time.Minute, "Timeout for source Nextcloud API calls")
 	flags.BoolVar(&nc.DiscoverOnly, "discover-only", false, "Print detected Memories configuration and exit")
@@ -80,6 +86,7 @@ being built. The current branch uses it to iterate on the UX and flag contract s
     --nextcloud-url=https://cloud.example.com \
     --nextcloud-user=alice \
     --nextcloud-password="$NEXTCLOUD_APP_PASSWORD" \
+		--nextcloud-local-dir="$HOME/Nextcloud" \
     --timeline-root=/Photos \
     --server=http://immich.example.com:2283 \
     --api-key="$IMMICH_API_KEY"`),
@@ -171,6 +178,15 @@ func (nc *Command) prepareImport(ctx context.Context) error {
 		return nil
 	}
 
+	discovery, err := nc.runDiscovery(ctx)
+	if err != nil {
+		return err
+	}
+	selectedRoots, err := nc.resolveSelectedRoots(discovery)
+	if err != nil {
+		return err
+	}
+
 	client, err := nextcloud.NewClient(nextcloud.Config{
 		BaseURL:       nc.NextcloudURL,
 		Username:      nc.NextcloudUser,
@@ -185,22 +201,24 @@ func (nc *Command) prepareImport(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to Nextcloud DAV endpoint: %w", err)
 	}
 
-	discovery, err := nextcloud.DiscoverMemories(ctx, client)
-	if err != nil {
-		return err
-	}
-	selectedRoots, err := nc.resolveSelectedRoots(discovery)
-	if err != nil {
-		return err
-	}
-
 	uid := nc.NextcloudUser
 	if discovery.Describe.UID != nil && strings.TrimSpace(*discovery.Describe.UID) != "" {
 		uid = strings.TrimSpace(*discovery.Describe.UID)
 	}
-	sourceFS, err := nextcloud.NewWebDAVFS(ctx, client, uid)
+	newRemoteFS := nc.newRemoteFS
+	if newRemoteFS == nil {
+		newRemoteFS = func(ctx context.Context, client *nextcloud.Client, uid string) (fs.FS, error) {
+			return nextcloud.NewWebDAVFS(ctx, client, uid)
+		}
+	}
+	remoteFS, err := newRemoteFS(ctx, client, uid)
 	if err != nil {
 		return err
+	}
+
+	var sourceFS fs.FS = remoteFS
+	if nc.NextcloudLocalDir != "" {
+		sourceFS = nextcloud.NewPreferredLocalFS(osfs.DirFS(nc.NextcloudLocalDir), remoteFS)
 	}
 
 	nc.discovery = discovery
@@ -233,12 +251,17 @@ func (nc *Command) intentSummary() string {
 	if len(nc.TimelineRoots) > 0 {
 		rootScope = strings.Join(nc.TimelineRoots, ", ")
 	}
+	sourceMode := "webdav"
+	if nc.NextcloudLocalDir != "" {
+		sourceMode = fmt.Sprintf("local-first (%s), fallback webdav", nc.NextcloudLocalDir)
+	}
 
 	return strings.Join([]string{
 		"Nextcloud Memories scaffold",
 		fmt.Sprintf("  mode: %s", mode),
 		fmt.Sprintf("  nextcloud-url: %s", nc.NextcloudURL),
 		fmt.Sprintf("  nextcloud-user: %s", nc.NextcloudUser),
+		fmt.Sprintf("  source-files: %s", sourceMode),
 		fmt.Sprintf("  timeline-roots: %s", rootScope),
 		fmt.Sprintf("  sync-albums: %t", nc.SyncAlbums),
 		fmt.Sprintf("  allow-unindexed: %t", nc.AllowUnindexed),
@@ -306,6 +329,7 @@ func (nc *Command) validate() error {
 	nc.NextcloudURL = strings.TrimSpace(nc.NextcloudURL)
 	nc.NextcloudUser = strings.TrimSpace(nc.NextcloudUser)
 	nc.NextcloudPassword = strings.TrimSpace(nc.NextcloudPassword)
+	nc.NextcloudLocalDir = strings.TrimSpace(nc.NextcloudLocalDir)
 	nc.TimelineRoots = normalizeTimelineRoots(nc.TimelineRoots)
 
 	if nc.NextcloudURL == "" {
@@ -326,6 +350,14 @@ func (nc *Command) validate() error {
 	}
 	if nc.NextcloudClientTimeout <= 0 {
 		joinedErr = errors.Join(joinedErr, errors.New("invalid --nextcloud-client-timeout: must be greater than 0"))
+	}
+	if nc.NextcloudLocalDir != "" {
+		info, err := os.Stat(nc.NextcloudLocalDir)
+		if err != nil {
+			joinedErr = errors.Join(joinedErr, fmt.Errorf("invalid --nextcloud-local-dir %q: %w", nc.NextcloudLocalDir, err))
+		} else if !info.IsDir() {
+			joinedErr = errors.Join(joinedErr, fmt.Errorf("invalid --nextcloud-local-dir %q: not a directory", nc.NextcloudLocalDir))
+		}
 	}
 	for _, root := range nc.TimelineRoots {
 		if !strings.HasPrefix(root, "/") {

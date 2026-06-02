@@ -3,6 +3,12 @@ package nextcloudmemories
 import (
 	"bytes"
 	"context"
+	"io"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -32,6 +38,7 @@ func TestNewFromNextcloudMemoriesCommandMetadata(t *testing.T) {
 	assert.NotNil(t, cmd.Flag("nextcloud-url"))
 	assert.NotNil(t, cmd.Flag("nextcloud-user"))
 	assert.NotNil(t, cmd.Flag("nextcloud-password"))
+	assert.NotNil(t, cmd.Flag("nextcloud-local-dir"))
 	assert.NotNil(t, cmd.Flag("discover-only"))
 	assert.NotNil(t, cmd.Flag("timeline-root"))
 	assert.NotNil(t, cmd.Flag("sync-albums"))
@@ -69,11 +76,13 @@ func TestCommandValidate(t *testing.T) {
 
 	t.Run("normalizes url and roots", func(t *testing.T) {
 		t.Parallel()
+		localDir := t.TempDir()
 
 		nc := &Command{
 			NextcloudURL:           " https://cloud.example.com/remote.php/ ",
 			NextcloudUser:          " alice ",
 			NextcloudPassword:      " secret ",
+			NextcloudLocalDir:      " " + localDir + " ",
 			NextcloudClientTimeout: 5 * time.Minute,
 			TimelineRoots:          []string{" //Photos/ ", "/Photos", "/Scans//"},
 		}
@@ -82,6 +91,7 @@ func TestCommandValidate(t *testing.T) {
 		assert.Equal(t, "https://cloud.example.com/remote.php", nc.NextcloudURL)
 		assert.Equal(t, "alice", nc.NextcloudUser)
 		assert.Equal(t, "secret", nc.NextcloudPassword)
+		assert.Equal(t, localDir, nc.NextcloudLocalDir)
 		assert.Equal(t, []string{"/Photos", "/Scans"}, nc.TimelineRoots)
 	})
 
@@ -140,6 +150,58 @@ func TestCommandRunImportUsesRunner(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.True(t, called)
+}
+
+func TestPrepareImportUsesLocalDirectoryAsPreferredFileSource(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	localDir := t.TempDir()
+	photosDir := filepath.Join(localDir, "Photos")
+	require.NoError(t, os.MkdirAll(photosDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(photosDir, "IMG_0001.JPG"), []byte("image-local"), 0o644))
+
+	remoteFS := fstest.MapFS{
+		"Photos/IMG_0001.JPG": {Data: []byte("image-remote")},
+	}
+
+	nc := Command{
+		NextcloudURL:           server.URL,
+		NextcloudUser:          "alice",
+		NextcloudPassword:      "secret",
+		NextcloudLocalDir:      localDir,
+		NextcloudClientTimeout: 5 * time.Minute,
+		newRemoteFS: func(ctx context.Context, client *nextcloud.Client, uid string) (fs.FS, error) {
+			return remoteFS, nil
+		},
+		discover: func(ctx context.Context, cfg nextcloud.Config) (*nextcloud.MemoriesDiscovery, error) {
+			return &nextcloud.MemoriesDiscovery{
+				TimelineRoots: []string{"/Photos"},
+				Describe:      nextcloud.MemoriesDescribe{UID: stringPtr("alice")},
+			}, nil
+		},
+	}
+
+	err := nc.prepareImport(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, nc.sourceFS)
+	assert.Equal(t, []string{"/Photos"}, nc.selectedRoots)
+
+	groups := collectGroups(nc.Browse(context.Background()))
+	require.Len(t, groups, 1)
+	assert.Equal(t, "Photos/IMG_0001.JPG", groups[0].Assets[0].File.Name())
+
+	f, err := groups[0].Assets[0].File.Open()
+	require.NoError(t, err)
+	defer f.Close()
+
+	b, err := io.ReadAll(f)
+	require.NoError(t, err)
+	assert.Equal(t, "image-local", string(b))
 }
 
 func TestCommandRunDiscoverOnly(t *testing.T) {
@@ -221,6 +283,7 @@ func TestCommandIntentSummary(t *testing.T) {
 
 		summary := nc.intentSummary()
 		assert.Contains(t, summary, "mode: discover-only")
+		assert.Contains(t, summary, "source-files: webdav")
 		assert.Contains(t, summary, "timeline-roots: all configured Memories timeline roots")
 		assert.Contains(t, summary, "sync-albums: true")
 		assert.NotContains(t, summary, "secret")
@@ -232,6 +295,7 @@ func TestCommandIntentSummary(t *testing.T) {
 		nc := &Command{
 			NextcloudURL:           "https://cloud.example.com",
 			NextcloudUser:          "alice",
+			NextcloudLocalDir:      "/srv/nextcloud-sync",
 			SyncAlbums:             false,
 			AllowUnindexed:         true,
 			NextcloudSkipVerifySSL: true,
@@ -240,6 +304,7 @@ func TestCommandIntentSummary(t *testing.T) {
 
 		summary := nc.intentSummary()
 		assert.Contains(t, summary, "mode: import")
+		assert.Contains(t, summary, "source-files: local-first (/srv/nextcloud-sync), fallback webdav")
 		assert.Contains(t, summary, "timeline-roots: /Photos, /Scans")
 		assert.Contains(t, summary, "sync-albums: false")
 		assert.Contains(t, summary, "allow-unindexed: true")
