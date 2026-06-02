@@ -30,23 +30,17 @@ The command should feel like a true Memories migration:
 
 ## Proposed Command Surface
 
-Primary command:
+Command:
 
 ```bash
 immich-go upload from-nextcloud-memories [options]
-```
-
-Optional alias:
-
-```bash
-immich-go upload from-nc-memories [options]
 ```
 
 Rationale:
 
 - `upload` already groups source-specific migrations under sub-commands
 - `from-nextcloud-memories` is explicit and self-documenting
-- `from-nc-memories` is a useful shorthand, but should remain an alias rather than the primary name
+- Keeping one canonical command name makes examples and support instructions simpler
 
 ## Scope Model
 
@@ -75,6 +69,16 @@ This keeps the command aligned with user intent. If users want arbitrary folder 
 - Run discovery only and print resolved configuration
 - Allow continuing with incomplete indexing when the user opts in
 - Disable album recreation when the user wants a flat import
+- Prefer reading file bytes from a local synced Nextcloud copy to reduce migration time
+
+### Local Copy Optimization
+
+When the source library is already synced locally by the Nextcloud desktop client, the importer can reuse that local copy for asset reads.
+
+- `--nextcloud-local-dir` points to the local sync root
+- Discovery, scope validation, and enumeration still come from the source Nextcloud Memories configuration
+- Only file content reads prefer the local copy, falling back to WebDAV when a file is not present locally
+- This preserves Memories semantics while avoiding slow remote reads during migration
 
 ### Guardrails
 

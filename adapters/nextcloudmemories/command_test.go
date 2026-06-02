@@ -30,7 +30,7 @@ func TestNewFromNextcloudMemoriesCommandMetadata(t *testing.T) {
 	cmd := NewFromNextcloudMemoriesCommand(ctx, parent, a, nil)
 
 	assert.Equal(t, "from-nextcloud-memories [flags]", cmd.Use)
-	assert.Contains(t, cmd.Aliases, "from-nc-memories")
+	assert.Empty(t, cmd.Aliases)
 	assert.True(t, cmd.Hidden)
 	assert.Contains(t, cmd.Long, "not arbitrary Nextcloud storage paths")
 	assert.Contains(t, cmd.Example, "--discover-only")

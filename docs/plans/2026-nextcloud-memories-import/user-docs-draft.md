@@ -34,8 +34,11 @@ If you want to import arbitrary folders, use `from-folder` after exporting or mo
 | `--nextcloud-url` | Y | Nextcloud base URL |
 | `--nextcloud-user` | Y | Nextcloud username |
 | `--nextcloud-password` | Y | Nextcloud password or app password |
+| `--nextcloud-local-dir` |  | Prefer reading asset contents from a local synced Nextcloud copy to improve migration speed |
 | `--nextcloud-skip-verify-ssl` |  | Skip TLS verification for the source |
 | `--nextcloud-client-timeout` |  | Timeout for source API calls |
+
+`--nextcloud-local-dir` is an optimization, not a source override. The importer still talks to Nextcloud to discover the Memories library and enumerate the configured timeline roots. When a matching file exists in the local synced copy, the importer reads it locally; otherwise it falls back to WebDAV.
 
 ## Discovery and Scope Options
 
@@ -123,6 +126,21 @@ immich-go upload from-nextcloud-memories \
   --server=http://immich.example.com:2283 \
   --api-key="$IMMICH_API_KEY"
 ```
+
+### Speed up a migration with a local Nextcloud sync
+
+```bash
+immich-go upload from-nextcloud-memories \
+  --nextcloud-url=https://cloud.example.com \
+  --nextcloud-user=alice \
+  --nextcloud-password="$NEXTCLOUD_APP_PASSWORD" \
+  --nextcloud-local-dir="$HOME/Nextcloud" \
+  --timeline-root=/Photos \
+  --server=http://immich.example.com:2283 \
+  --api-key="$IMMICH_API_KEY"
+```
+
+Use this when the Nextcloud desktop client has already staged the source library locally. Discovery and scope selection still come from Memories, but asset bytes are read from the local copy when available, which can make large migrations much faster.
 
 ### Import without album recreation
 

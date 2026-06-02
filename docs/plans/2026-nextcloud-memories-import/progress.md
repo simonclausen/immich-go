@@ -4,7 +4,7 @@
 
 **Phase**: Source discovery, optimized asset enumeration, and upload-path optimization
 
-**Last Updated**: 2026-06-01
+**Last Updated**: 2026-06-02
 
 **Summary**:
 
@@ -27,7 +27,7 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Kept public docs unchanged because the command is not implemented
 
 - [x] Scaffold command UX and validation
-  - Added a hidden `from-nextcloud-memories` command shell with alias `from-nc-memories`
+  - Added a hidden `from-nextcloud-memories` command shell
   - Added source flag registration, normalization, and validation for the planned UX contract
   - Added tests for command metadata, flag validation, and explicit not-implemented failure paths
   - Added a human-readable scaffold summary so the CLI UX can be reviewed before discovery exists
@@ -57,6 +57,16 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Added `--nextcloud-local-dir` to prefer a local sync directory when opening asset contents while keeping Memories as the source of truth
   - Enumeration still comes from Nextcloud discovery and DAV-backed browsing, so local files are an optimization path rather than an override
   - Added focused tests for the layered local-first file source behavior
+
+### 2026-06-02: No Short Alias
+
+**Decision**: Keep the command name as `from-nextcloud-memories` without a `from-nc-memories` alias.
+
+**Rationale**:
+
+- The full name is explicit enough for copy-paste use
+- Shared examples and support instructions are clearer with one canonical spelling
+- The local copy optimization is the more valuable usability improvement
 
 - [x] Reuse cached source reads across checksum and upload
   - Centralized asset cache creation so checksum and upload share the same cached representation

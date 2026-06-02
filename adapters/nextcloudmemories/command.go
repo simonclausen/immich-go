@@ -47,7 +47,7 @@ func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&nc.NextcloudURL, "nextcloud-url", "", "Nextcloud base URL")
 	flags.StringVar(&nc.NextcloudUser, "nextcloud-user", "", "Nextcloud username")
 	flags.StringVar(&nc.NextcloudPassword, "nextcloud-password", "", "Nextcloud password or app password")
-	flags.StringVar(&nc.NextcloudLocalDir, "nextcloud-local-dir", "", "Prefer a local directory containing synced Nextcloud files when opening asset contents, while keeping Memories as the source of truth")
+	flags.StringVar(&nc.NextcloudLocalDir, "nextcloud-local-dir", "", "Prefer a local directory containing a synced Nextcloud copy to speed up file reads while keeping Memories as the source of truth")
 	flags.BoolVar(&nc.NextcloudSkipVerifySSL, "nextcloud-skip-verify-ssl", false, "Skip TLS verification for the source Nextcloud server")
 	flags.DurationVar(&nc.NextcloudClientTimeout, "nextcloud-client-timeout", 5*time.Minute, "Timeout for source Nextcloud API calls")
 	flags.BoolVar(&nc.DiscoverOnly, "discover-only", false, "Print detected Memories configuration and exit")
@@ -61,9 +61,8 @@ func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
 // remains hidden until source discovery and browsing are implemented.
 func NewFromNextcloudMemoriesCommand(ctx context.Context, parent *cobra.Command, app *app.Application, runner adapters.Runner) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "from-nextcloud-memories [flags]",
-		Aliases: []string{"from-nc-memories"},
-		Short:   "Upload photos from a Nextcloud Memories library",
+		Use:   "from-nextcloud-memories [flags]",
+		Short: "Upload photos from a Nextcloud Memories library",
 		Long: strings.TrimSpace(`Import photos and videos from a Nextcloud instance that uses the Memories app.
 
 This source is intended to migrate the configured Memories library for a user account,
