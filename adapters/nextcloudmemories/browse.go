@@ -14,7 +14,6 @@ import (
 	"github.com/simulot/immich-go/internal/filetypes"
 	"github.com/simulot/immich-go/internal/fshelper"
 	"github.com/simulot/immich-go/internal/namematcher"
-	"github.com/simulot/immich-go/internal/nextcloud"
 )
 
 var defaultBannedFiles = namematcher.MustList(shared.DefaultBannedFiles...)
@@ -51,17 +50,6 @@ func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error 
 	}
 
 	seen := map[string]struct{}{}
-	if searchFS, ok := nc.sourceFS.(interface {
-		SearchFiles(string) ([]nextcloud.SearchEntry, error)
-	}); ok {
-		err := nc.browseSearch(ctx, gOut, searchFS, infoCollector, supportedMedia, processor, seen)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, nextcloud.ErrSearchUnsupported) {
-			return err
-		}
-	}
 
 	for _, root := range nc.selectedRoots {
 		walkRoot := timelineRootToFSPath(root)
@@ -94,36 +82,6 @@ func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error 
 		})
 		if err != nil {
 			return err
-		}
-	}
-
-	return nil
-}
-
-func (nc *Command) browseSearch(ctx context.Context, gOut chan<- *assets.Group, searchFS interface {
-	SearchFiles(string) ([]nextcloud.SearchEntry, error)
-}, infoCollector *filenames.InfoCollector, supportedMedia filetypes.SupportedMedia, processor interface {
-	RecordAssetDiscovered(context.Context, fshelper.FSAndName, int64, fileevent.Code)
-	RecordNonAsset(context.Context, fshelper.FSAndName, int64, fileevent.Code, ...any)
-}, seen map[string]struct{}) error {
-	for _, root := range nc.selectedRoots {
-		entries, err := searchFS.SearchFiles(timelineRootToFSPath(root))
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			if entry.Info.IsDir() {
-				continue
-			}
-			if err := nc.emitAsset(ctx, gOut, seen, entry.Path, entry.Info, infoCollector, supportedMedia, processor); err != nil {
-				return err
-			}
 		}
 	}
 

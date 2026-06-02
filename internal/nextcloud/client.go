@@ -30,7 +30,6 @@ type Client struct {
 	username   string
 	password   string
 	httpClient *http.Client
-	davHTTP    *http.Client
 	davClient  *gowebdav.Client
 }
 
@@ -54,8 +53,6 @@ func NewClient(cfg Config) (*Client, error) {
 		Timeout:   cfg.Timeout,
 		Transport: transport,
 	}
-	davHTTPClient := &http.Client{Transport: transport}
-
 	davRootURL := baseURL.ResolveReference(&url.URL{Path: joinURLPath(baseURL.Path, "remote.php/dav")})
 	davClient := gowebdav.NewClient(davRootURL.String(), strings.TrimSpace(cfg.Username), strings.TrimSpace(cfg.Password))
 	davClient.SetTransport(transport)
@@ -70,7 +67,6 @@ func NewClient(cfg Config) (*Client, error) {
 		username:   strings.TrimSpace(cfg.Username),
 		password:   strings.TrimSpace(cfg.Password),
 		httpClient: httpClient,
-		davHTTP:    davHTTPClient,
 		davClient:  davClient,
 	}, nil
 }

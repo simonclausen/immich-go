@@ -17,16 +17,11 @@ type davReadClient interface {
 	Stat(path string) (os.FileInfo, error)
 }
 
-type davSearchClient interface {
-	SearchFiles(ctx context.Context, scopePath string) ([]SearchEntry, error)
-}
-
 // WebDAVFS exposes a read-only fs.FS view over the authenticated Nextcloud DAV
 // files tree for a single user.
 type WebDAVFS struct {
 	ctx      context.Context
 	client   davReadClient
-	search   davSearchClient
 	rootPath string
 	name     string
 }
@@ -41,17 +36,16 @@ func NewWebDAVFS(ctx context.Context, client *Client, uid string) (*WebDAVFS, er
 	if uid == "" {
 		return nil, errors.New("missing Nextcloud user ID for DAV browsing")
 	}
-	return newWebDAVFS(ctx, client.DAV(), client, pathpkg.Join("/files", uid), "nextcloud:"+uid), nil
+	return newWebDAVFS(ctx, client.DAV(), pathpkg.Join("/files", uid), "nextcloud:"+uid), nil
 }
 
-func newWebDAVFS(ctx context.Context, client davReadClient, search davSearchClient, rootPath string, name string) *WebDAVFS {
+func newWebDAVFS(ctx context.Context, client davReadClient, rootPath string, name string) *WebDAVFS {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	return &WebDAVFS{
 		ctx:      ctx,
 		client:   client,
-		search:   search,
 		rootPath: pathpkg.Clean(rootPath),
 		name:     name,
 	}
@@ -112,41 +106,6 @@ func (wfs *WebDAVFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 	return dirEntries, nil
 }
-
-func (wfs *WebDAVFS) SearchFiles(name string) ([]SearchEntry, error) {
-	if wfs.search == nil {
-		return nil, ErrSearchUnsupported
-	}
-
-	davPath, cleanedName, err := wfs.resolveDAVPath(name)
-	if err != nil {
-		return nil, &fs.PathError{Op: "search", Path: name, Err: err}
-	}
-
-	entries, err := wfs.search.SearchFiles(wfs.ctx, davPath)
-	if err != nil {
-		if errors.Is(err, ErrSearchUnsupported) {
-			return nil, err
-		}
-		return nil, &fs.PathError{Op: "search", Path: cleanedName, Err: err}
-	}
-
-	results := make([]SearchEntry, 0, len(entries))
-	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Path, wfs.rootPath) {
-			return nil, &fs.PathError{Op: "search", Path: cleanedName, Err: fs.ErrInvalid}
-		}
-		relPath := strings.TrimPrefix(entry.Path, wfs.rootPath)
-		relPath = strings.TrimPrefix(relPath, "/")
-		if relPath == "" || relPath == "." || relPath == ".." || strings.HasPrefix(relPath, "../") {
-			return nil, &fs.PathError{Op: "search", Path: cleanedName, Err: fs.ErrInvalid}
-		}
-		entry.Path = relPath
-		results = append(results, entry)
-	}
-	return results, nil
-}
-
 func (wfs *WebDAVFS) resolveDAVPath(name string) (string, string, error) {
 	cleanedName, err := cleanRelativePath(name)
 	if err != nil {

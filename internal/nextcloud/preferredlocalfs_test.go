@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,11 +50,8 @@ func TestPreferredLocalFSFallsBackToRemoteOpen(t *testing.T) {
 func TestPreferredLocalFSDelegatesEnumerationToRemote(t *testing.T) {
 	t.Parallel()
 
-	remote := &testSearchFS{
-		MapFS: fstest.MapFS{
-			"Photos/Trips/IMG_0001.JPG": {Data: []byte("remote")},
-		},
-		entries: []SearchEntry{{Path: "Photos/Trips/IMG_0001.JPG", Info: testSearchInfo{name: "IMG_0001.JPG", size: 6}}},
+	remote := fstest.MapFS{
+		"Photos/Trips/IMG_0001.JPG": {Data: []byte("remote")},
 	}
 
 	fsys := NewPreferredLocalFS(fstest.MapFS{}, remote)
@@ -64,41 +60,7 @@ func TestPreferredLocalFSDelegatesEnumerationToRemote(t *testing.T) {
 	require.Len(t, dirEntries, 1)
 	assert.Equal(t, "IMG_0001.JPG", dirEntries[0].Name())
 
-	searchFS, ok := fsys.(searchFilesFS)
-	require.True(t, ok)
-	entries, err := searchFS.SearchFiles("Photos")
-	require.NoError(t, err)
-	require.Len(t, entries, 1)
-	assert.Equal(t, []string{"Photos"}, remote.scopes)
-
 	info, err := fs.Stat(fsys, "Photos/Trips/IMG_0001.JPG")
 	require.NoError(t, err)
 	assert.Equal(t, int64(6), info.Size())
 }
-
-type testSearchFS struct {
-	fstest.MapFS
-	entries []SearchEntry
-	scopes  []string
-	err     error
-}
-
-func (t *testSearchFS) SearchFiles(scope string) ([]SearchEntry, error) {
-	t.scopes = append(t.scopes, scope)
-	if t.err != nil {
-		return nil, t.err
-	}
-	return append([]SearchEntry(nil), t.entries...), nil
-}
-
-type testSearchInfo struct {
-	name string
-	size int64
-}
-
-func (t testSearchInfo) Name() string       { return t.name }
-func (t testSearchInfo) Size() int64        { return t.size }
-func (t testSearchInfo) Mode() fs.FileMode  { return 0o644 }
-func (t testSearchInfo) ModTime() time.Time { return time.Unix(1700000000, 0) }
-func (t testSearchInfo) IsDir() bool        { return false }
-func (t testSearchInfo) Sys() any           { return nil }
