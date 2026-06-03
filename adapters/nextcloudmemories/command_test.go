@@ -42,7 +42,7 @@ func TestNewFromNextcloudMemoriesCommandMetadata(t *testing.T) {
 	assert.NotNil(t, cmd.Flag("discover-only"))
 	assert.NotNil(t, cmd.Flag("timeline-root"))
 	assert.NotNil(t, cmd.Flag("sync-albums"))
-	assert.NotNil(t, cmd.Flag("allow-unindexed"))
+	assert.NotNil(t, cmd.Flag("require-indexed"))
 }
 
 func TestCommandValidate(t *testing.T) {
@@ -276,7 +276,7 @@ func TestCommandIntentSummary(t *testing.T) {
 			NextcloudUser:     "alice",
 			DiscoverOnly:      true,
 			SyncAlbums:        true,
-			AllowUnindexed:    false,
+			RequireIndexed:    false,
 			TimelineRoots:     nil,
 			NextcloudPassword: "secret",
 		}
@@ -297,7 +297,7 @@ func TestCommandIntentSummary(t *testing.T) {
 			NextcloudUser:          "alice",
 			NextcloudLocalDir:      "/srv/nextcloud-sync",
 			SyncAlbums:             false,
-			AllowUnindexed:         true,
+			RequireIndexed:         true,
 			NextcloudSkipVerifySSL: true,
 			TimelineRoots:          []string{"/Photos", "/Scans"},
 		}
@@ -307,7 +307,7 @@ func TestCommandIntentSummary(t *testing.T) {
 		assert.Contains(t, summary, "source-files: local-first (/srv/nextcloud-sync), fallback webdav")
 		assert.Contains(t, summary, "timeline-roots: /Photos, /Scans")
 		assert.Contains(t, summary, "sync-albums: false")
-		assert.Contains(t, summary, "allow-unindexed: true")
+		assert.Contains(t, summary, "require-indexed: true")
 		assert.Contains(t, summary, "skip-verify-ssl: true")
 	})
 }

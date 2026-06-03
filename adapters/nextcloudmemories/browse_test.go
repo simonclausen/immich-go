@@ -77,6 +77,77 @@ func TestBrowseDeduplicatesOverlappingRoots(t *testing.T) {
 	assert.EqualValues(t, 1, counts[fileevent.DiscoveredImage])
 }
 
+func TestBrowseEnrichesAssetsWithMemoriesMetadata(t *testing.T) {
+	t.Parallel()
+
+	nc := &Command{
+		app: newTestApp(t),
+		sourceFS: fstest.MapFS{
+			"Photos/IMG_0001.JPG": {Data: []byte("image"), ModTime: time.Unix(1700000000, 0)},
+		},
+		selectedRoots: []string{"/Photos"},
+		metadataIndex: &memoriesMetadataIndex{
+			byPath: map[string]*assets.Metadata{
+				"Photos/IMG_0001.JPG": {
+					Description: "Sunset",
+					Favorited:   true,
+					Rating:      5,
+					Albums:      []assets.Album{assets.NewAlbum("", "Roadtrip", "")},
+					Tags:        []assets.Tag{{Name: "Travel", Value: "Travel"}},
+				},
+			},
+		},
+	}
+
+	groups := collectGroups(nc.Browse(context.Background()))
+	require.Len(t, groups, 1)
+	require.Len(t, groups[0].Assets, 1)
+
+	asset := groups[0].Assets[0]
+	require.NotNil(t, asset.FromApplication)
+	assert.Equal(t, "Sunset", asset.Description)
+	assert.True(t, asset.Favorite)
+	assert.Equal(t, 5, asset.Rating)
+	require.Len(t, asset.Albums, 1)
+	assert.Equal(t, "Roadtrip", asset.Albums[0].Title)
+	require.Len(t, asset.Tags, 1)
+	assert.Equal(t, "Travel", asset.Tags[0].Value)
+}
+
+func TestBrowseWarnsAndContinuesForUnindexedAssetsByDefault(t *testing.T) {
+	t.Parallel()
+
+	nc := &Command{
+		app: newTestApp(t),
+		sourceFS: fstest.MapFS{
+			"Photos/IMG_0001.JPG": {Data: []byte("image")},
+		},
+		selectedRoots: []string{"/Photos"},
+		metadataIndex: newMemoriesMetadataIndex(),
+	}
+
+	groups := collectGroups(nc.Browse(context.Background()))
+	require.Len(t, groups, 1)
+	assert.Nil(t, groups[0].Assets[0].FromApplication)
+}
+
+func TestBrowseRejectsUnindexedAssetsWhenStrictModeIsRequested(t *testing.T) {
+	t.Parallel()
+
+	nc := &Command{
+		app:            newTestApp(t),
+		RequireIndexed: true,
+		sourceFS: fstest.MapFS{
+			"Photos/IMG_0001.JPG": {Data: []byte("image")},
+		},
+		selectedRoots: []string{"/Photos"},
+		metadataIndex: newMemoriesMetadataIndex(),
+	}
+
+	groups := collectGroups(nc.Browse(context.Background()))
+	assert.Empty(t, groups)
+}
+
 func TestTimelineRootToFSPath(t *testing.T) {
 	t.Parallel()
 

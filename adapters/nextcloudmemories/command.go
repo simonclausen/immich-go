@@ -31,7 +31,7 @@ type Command struct {
 	DiscoverOnly           bool
 	TimelineRoots          []string
 	SyncAlbums             bool
-	AllowUnindexed         bool
+	RequireIndexed         bool
 
 	newRemoteFS func(context.Context, *nextcloud.Client, string) (fs.FS, error)
 
@@ -39,6 +39,8 @@ type Command struct {
 	app      *app.Application
 
 	discovery     *nextcloud.MemoriesDiscovery
+	client        *nextcloud.Client
+	metadataIndex *memoriesMetadataIndex
 	sourceFS      fs.FS
 	selectedRoots []string
 }
@@ -53,7 +55,7 @@ func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&nc.DiscoverOnly, "discover-only", false, "Print detected Memories configuration and exit")
 	flags.StringSliceVar(&nc.TimelineRoots, "timeline-root", nil, "Limit the import to configured Memories timeline roots. Can be specified multiple times")
 	flags.BoolVar(&nc.SyncAlbums, "sync-albums", true, "Recreate Memories albums in Immich")
-	flags.BoolVar(&nc.AllowUnindexed, "allow-unindexed", false, "Continue even if the source Memories library appears partially indexed")
+	flags.BoolVar(&nc.RequireIndexed, "require-indexed", false, "Fail if files are found under the selected Memories roots without matching Memories metadata")
 }
 
 // NewFromNextcloudMemoriesCommand creates a hidden command scaffold for the planned
@@ -137,9 +139,6 @@ func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
 	if err := nc.prepareImport(ctx); err != nil {
 		return err
 	}
-	if nc.SyncAlbums && nc.app != nil {
-		nc.app.Log().Warn("Nextcloud Memories album recreation is not implemented yet; continuing with asset import only")
-	}
 	return runner.Run(cmd, nc)
 }
 
@@ -221,6 +220,7 @@ func (nc *Command) prepareImport(ctx context.Context) error {
 	}
 
 	nc.discovery = discovery
+	nc.client = client
 	nc.selectedRoots = selectedRoots
 	nc.sourceFS = sourceFS
 	return nil
@@ -263,7 +263,7 @@ func (nc *Command) intentSummary() string {
 		fmt.Sprintf("  source-files: %s", sourceMode),
 		fmt.Sprintf("  timeline-roots: %s", rootScope),
 		fmt.Sprintf("  sync-albums: %t", nc.SyncAlbums),
-		fmt.Sprintf("  allow-unindexed: %t", nc.AllowUnindexed),
+		fmt.Sprintf("  require-indexed: %t", nc.RequireIndexed),
 		fmt.Sprintf("  skip-verify-ssl: %t", nc.NextcloudSkipVerifySSL),
 	}, "\n")
 }

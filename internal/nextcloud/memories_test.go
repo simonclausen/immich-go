@@ -89,6 +89,85 @@ func TestDiscoverMemories(t *testing.T) {
 	}
 }
 
+func TestGetMemoriesDaysAppliesTimelineQuery(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/index.php/apps/memories/api/days", r.URL.Path)
+		assert.Equal(t, "/Photos", r.URL.Query().Get("folder"))
+		assert.Equal(t, "1", r.URL.Query().Get("recursive"))
+		assert.Equal(t, "1", r.URL.Query().Get("hidden"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `[{"dayid":19723,"count":2}]`)
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	days, err := GetMemoriesDays(context.Background(), client, MemoriesTimelineQuery{
+		Folder:    "/Photos",
+		Recursive: true,
+		Hidden:    true,
+	})
+	require.NoError(t, err)
+	require.Len(t, days, 1)
+	assert.Equal(t, 19723, days[0].DayID)
+	assert.Equal(t, 2, days[0].Count)
+}
+
+func TestGetMemoriesDayParsesPhotoFlags(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/index.php/apps/memories/api/days/19723,19722", r.URL.Path)
+		assert.Equal(t, "/Scans", r.URL.Query().Get("folder"))
+		assert.Equal(t, "1", r.URL.Query().Get("archive"))
+		assert.Equal(t, "1", r.URL.Query().Get("hidden"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `[{"fileid":42,"basename":"IMG_0042.JPG","mimetype":"image/jpeg","dayid":19723,"datetaken":1700000000,"isfavorite":1,"ishidden":true}]`)
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	photos, err := GetMemoriesDay(context.Background(), client, []int{19723, 19722}, MemoriesTimelineQuery{
+		Folder:  "/Scans",
+		Archive: true,
+		Hidden:  true,
+	})
+	require.NoError(t, err)
+	require.Len(t, photos, 1)
+	assert.Equal(t, 42, photos[0].FileID)
+	assert.Equal(t, "IMG_0042.JPG", photos[0].Basename)
+	assert.Equal(t, int64(1700000000), photos[0].DateTaken)
+	assert.True(t, bool(photos[0].IsFavorite))
+	assert.True(t, bool(photos[0].IsHidden))
+}
+
+func TestGetMemoriesImageInfoRequestsOptionalExpansions(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/index.php/apps/memories/api/image/info/42", r.URL.Path)
+		assert.Equal(t, "1", r.URL.Query().Get("tags"))
+		assert.Equal(t, "albums,recognize", r.URL.Query().Get("clusters"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"fileid":42,"datetaken":1700000000,"basename":"IMG_0042.JPG","mimetype":"image/jpeg","filename":"/Photos/IMG_0042.JPG","tags":{"1":"Travel"},"exif":{"Description":"sunset","Rating":"5"},"clusters":{"albums":[{"album_id":7,"cluster_id":"alice/Roadtrip","name":"Roadtrip","user":"alice","shared":false}]}}`)
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	info, err := GetMemoriesImageInfo(context.Background(), client, 42, MemoriesImageInfoQuery{
+		Tags:     true,
+		Clusters: []string{"albums", "recognize"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 42, info.FileID)
+	assert.Equal(t, "/Photos/IMG_0042.JPG", info.FileName)
+	assert.Equal(t, "Travel", info.Tags["1"])
+	assert.Equal(t, "sunset", info.Exif["Description"])
+	require.Len(t, info.Clusters.Albums, 1)
+	assert.Equal(t, "Roadtrip", info.Clusters.Albums[0].Name)
+}
+
 func TestSplitTimelineRootsNormalizesLeadingSlashes(t *testing.T) {
 	t.Parallel()
 

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	pathpkg "path"
+	"strconv"
 	"slices"
 	"strings"
 )
@@ -52,6 +54,102 @@ type MemoriesDiscovery struct {
 	Describe      MemoriesDescribe
 	Config        MemoriesConfig
 	TimelineRoots []string
+}
+
+// MemoriesTimelineQuery scopes day and photo listing requests to the same
+// effective views exposed by the Memories timeline APIs.
+type MemoriesTimelineQuery struct {
+	Folder    string
+	Recursive bool
+	Archive   bool
+	Hidden    bool
+}
+
+// MemoriesImageInfoQuery controls optional expansions for per-file image info.
+type MemoriesImageInfoQuery struct {
+	Tags     bool
+	Clusters []string
+}
+
+// MemoriesDay represents a single day bucket from the Memories timeline API.
+type MemoriesDay struct {
+	DayID int `json:"dayid"`
+	Count int `json:"count"`
+}
+
+// MemoriesPhoto represents a file returned by the Memories day listing API.
+type MemoriesPhoto struct {
+	FileID     int          `json:"fileid"`
+	Basename   string       `json:"basename"`
+	MimeType   string       `json:"mimetype"`
+	DayID      int          `json:"dayid"`
+	DateTaken  int64        `json:"datetaken"`
+	Archived   bool         `json:"-"`
+	IsFavorite memoriesBool `json:"isfavorite,omitempty"`
+	IsHidden   memoriesBool `json:"ishidden,omitempty"`
+}
+
+// MemoriesAlbum is the subset of album data returned by image info cluster
+// expansions and the album list API that is needed for import mapping.
+type MemoriesAlbum struct {
+	AlbumID     int    `json:"album_id"`
+	ClusterID   string `json:"cluster_id"`
+	Name        string `json:"name"`
+	User        string `json:"user"`
+	UserDisplay string `json:"user_display"`
+	Shared      bool   `json:"shared"`
+	Location    string `json:"location"`
+}
+
+// MemoriesImageInfo contains the file path and per-file metadata used to enrich
+// imported assets.
+type MemoriesImageInfo struct {
+	FileID    int               `json:"fileid"`
+	DateTaken int64             `json:"datetaken"`
+	Basename  string            `json:"basename"`
+	MimeType  string            `json:"mimetype"`
+	FileName  string            `json:"filename,omitempty"`
+	Tags      map[string]string `json:"tags,omitempty"`
+	Exif      map[string]any    `json:"exif,omitempty"`
+	Clusters  struct {
+		Albums []MemoriesAlbum `json:"albums,omitempty"`
+	} `json:"clusters,omitempty"`
+}
+
+type memoriesBool bool
+
+func (b *memoriesBool) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*b = false
+		return nil
+	}
+
+	var boolValue bool
+	if err := json.Unmarshal(data, &boolValue); err == nil {
+		*b = memoriesBool(boolValue)
+		return nil
+	}
+
+	var intValue int
+	if err := json.Unmarshal(data, &intValue); err == nil {
+		*b = memoriesBool(intValue != 0)
+		return nil
+	}
+
+	var stringValue string
+	if err := json.Unmarshal(data, &stringValue); err == nil {
+		switch strings.TrimSpace(strings.ToLower(stringValue)) {
+		case "1", "true", "yes", "y":
+			*b = true
+			return nil
+		case "0", "false", "no", "n", "":
+			*b = false
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid Memories boolean value %q", trimmed)
 }
 
 type ocsEnvelope[T any] struct {
@@ -138,6 +236,75 @@ func GetMemoriesConfig(ctx context.Context, client *Client) (*MemoriesConfig, er
 	return &config, nil
 }
 
+// GetMemoriesDays lists all day buckets visible in the requested timeline scope.
+func GetMemoriesDays(ctx context.Context, client *Client, query MemoriesTimelineQuery) ([]MemoriesDay, error) {
+	req, err := client.NewMemoriesRequest(ctx, http.MethodGet, "api/days", nil)
+	if err != nil {
+		return nil, err
+	}
+	applyMemoriesTimelineQuery(req.URL.Query(), req.URL, query)
+
+	var days []MemoriesDay
+	if err := doJSON(req, client, &days); err != nil {
+		return nil, err
+	}
+	return days, nil
+}
+
+// GetMemoriesDay lists all files for the requested Memories day IDs.
+func GetMemoriesDay(ctx context.Context, client *Client, dayIDs []int, query MemoriesTimelineQuery) ([]MemoriesPhoto, error) {
+	if len(dayIDs) == 0 {
+		return nil, nil
+	}
+
+	parts := make([]string, 0, len(dayIDs))
+	for _, dayID := range dayIDs {
+		parts = append(parts, strconv.Itoa(dayID))
+	}
+
+	req, err := client.NewMemoriesRequest(ctx, http.MethodGet, "api/days/"+strings.Join(parts, ","), nil)
+	if err != nil {
+		return nil, err
+	}
+	applyMemoriesTimelineQuery(req.URL.Query(), req.URL, query)
+
+	var photos []MemoriesPhoto
+	if err := doJSON(req, client, &photos); err != nil {
+		return nil, err
+	}
+	return photos, nil
+}
+
+// GetMemoriesImageInfo loads the detailed metadata for a single indexed file.
+func GetMemoriesImageInfo(ctx context.Context, client *Client, fileID int, query MemoriesImageInfoQuery) (*MemoriesImageInfo, error) {
+	req, err := client.NewMemoriesRequest(ctx, http.MethodGet, fmt.Sprintf("api/image/info/%d", fileID), nil)
+	if err != nil {
+		return nil, err
+	}
+	params := req.URL.Query()
+	if query.Tags {
+		params.Set("tags", "1")
+	}
+	clusters := make([]string, 0, len(query.Clusters))
+	for _, cluster := range query.Clusters {
+		cluster = strings.TrimSpace(cluster)
+		if cluster == "" {
+			continue
+		}
+		clusters = append(clusters, cluster)
+	}
+	if len(clusters) > 0 {
+		params.Set("clusters", strings.Join(clusters, ","))
+	}
+	req.URL.RawQuery = params.Encode()
+
+	var info MemoriesImageInfo
+	if err := doJSON(req, client, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
 // DiscoverMemories collects both OCS and Memories app metadata to drive the
 // discovery-only command flow.
 func DiscoverMemories(ctx context.Context, client *Client) (*MemoriesDiscovery, error) {
@@ -185,6 +352,22 @@ func splitTimelineRoots(raw string) []string {
 	}
 
 	return roots
+}
+
+func applyMemoriesTimelineQuery(params url.Values, requestURL *url.URL, query MemoriesTimelineQuery) {
+	if folder := strings.TrimSpace(query.Folder); folder != "" {
+		params.Set("folder", normalizeTimelineRoot(folder))
+	}
+	if query.Recursive {
+		params.Set("recursive", "1")
+	}
+	if query.Archive {
+		params.Set("archive", "1")
+	}
+	if query.Hidden {
+		params.Set("hidden", "1")
+	}
+	requestURL.RawQuery = params.Encode()
 }
 
 func normalizeTimelineRoot(raw string) string {

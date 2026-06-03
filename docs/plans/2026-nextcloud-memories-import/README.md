@@ -138,11 +138,11 @@ These are draft flags for discussion, not committed API.
 | `--discover-only` |  | Print detected Memories config and exit |
 | `--timeline-root` |  | Limit import to configured Memories roots; repeatable |
 | `--sync-albums` |  | Recreate Memories albums in Immich; default `true` |
-| `--allow-unindexed` |  | Continue even if the source library looks partially indexed |
+| `--require-indexed` |  | Fail if files are found under selected Memories roots without matching Memories metadata |
 
 ## Open Questions
 
-1. Should `--allow-unindexed` be a hard opt-in, or should the default be warn-and-continue?
+1. Should strict partial-index enforcement remain optional, or should the importer eventually surface a stronger summary/report for unindexed files?
 2. Should hidden albums be imported by default even though Immich has no equivalent hidden-album feature?
 3. Should discovery print only resolved roots, or also album support and indexing status?
 4. Should the command accept both password and app password fields, or document app passwords as the recommended value for `--nextcloud-password`?

@@ -3,6 +3,7 @@ package nextcloudmemories
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path"
 	"strings"
@@ -39,6 +40,9 @@ func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error 
 	}
 	if len(nc.selectedRoots) == 0 {
 		return errors.New("Nextcloud Memories import has no selected timeline roots")
+	}
+	if err := nc.ensureMetadataIndex(ctx); err != nil {
+		return err
 	}
 
 	supportedMedia := filetypes.DefaultSupportedMedia
@@ -126,7 +130,10 @@ func (nc *Command) emitAsset(ctx context.Context, gOut chan<- *assets.Group, see
 		return nil
 	}
 
-	asset := nc.assetFromInfo(name, info, infoCollector)
+	asset, err := nc.assetFromInfo(name, info, infoCollector)
+	if err != nil {
+		return err
+	}
 	if processor != nil {
 		discoveryCode := fileevent.DiscoveredImage
 		if mediaType == filetypes.TypeVideo {
@@ -143,7 +150,7 @@ func (nc *Command) emitAsset(ctx context.Context, gOut chan<- *assets.Group, see
 	}
 }
 
-func (nc *Command) assetFromInfo(name string, info fs.FileInfo, infoCollector *filenames.InfoCollector) *assets.Asset {
+func (nc *Command) assetFromInfo(name string, info fs.FileInfo, infoCollector *filenames.InfoCollector) (*assets.Asset, error) {
 	asset := &assets.Asset{
 		File:             fshelper.FSName(nc.sourceFS, name),
 		FileSize:         int(info.Size()),
@@ -151,7 +158,24 @@ func (nc *Command) assetFromInfo(name string, info fs.FileInfo, infoCollector *f
 		OriginalFileName: path.Base(name),
 	}
 	asset.SetNameInfo(infoCollector.GetInfo(asset.OriginalFileName))
-	return asset
+
+	if nc.metadataIndex == nil {
+		return asset, nil
+	}
+
+	md, ok := nc.metadataIndex.Get(name)
+	if !ok {
+		if nc.RequireIndexed {
+			return nil, fmt.Errorf("Memories metadata missing for %q; the source library appears partially indexed. Rerun without --require-indexed to continue", name)
+		}
+		if nc.app != nil {
+			nc.app.Log().Warn("Nextcloud Memories asset is not indexed; importing without source metadata", "file", name)
+		}
+		return asset, nil
+	}
+
+	asset.FromApplication = asset.UseMetadata(md)
+	return asset, nil
 }
 
 func (nc *Command) fileProcessor() interface {

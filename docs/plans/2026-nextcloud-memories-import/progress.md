@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Phase**: Source discovery and upload-path optimization
+**Phase**: Hidden command supports source metadata and album mapping
 
 **Last Updated**: 2026-06-02
 
 **Summary**:
 
-The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can now enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration uses DAV directory walking. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation also reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Public upload docs remain unchanged until more of the source behavior is shipped.
+The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration uses DAV directory walking. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Source-side metadata mapping is now wired through Memories day and image-info APIs, including capture date, GPS, description, rating, favorite, archive state, tags, and album membership. Public upload docs remain unchanged until the hidden command is promoted.
 
 ---
 
@@ -72,13 +72,29 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Avoids a second source fetch for non-local readers such as Nextcloud WebDAV
   - Added regression tests that assert a single source open across checksum and upload flows
 
-- [ ] Implement metadata and album mapping
+- [x] Implement metadata and album mapping
+  - Added Memories timeline and per-file image-info API helpers in `internal/nextcloud`
+  - Built a source metadata index keyed by the file paths returned from Memories image-info
+  - Mapped capture date, GPS, description, rating, favorite, archive state, tags, and album membership onto imported assets
+  - Added partial-index detection so DAV-enumerated files without Memories metadata warn and continue by default, with `--require-indexed` available for fail-closed imports
+  - Shared albums are renamed with an owner suffix when needed to avoid album title collisions in Immich
 
 - [x] Add focused tests for discovery and base enumeration
   - Added DAV filesystem tests for path handling and file reads
   - Added adapter browse tests for media filtering and overlapping-root deduplication
 
 - [ ] Promote draft docs into public docs after implementation ships
+
+### 2026-06-02: Album Membership Uses Source Metadata
+
+**Decision**: Resolve album membership from per-file Memories image-info responses instead of building a separate album-first traversal.
+
+**Rationale**:
+
+- It keeps DAV enumeration as the single source of asset discovery
+- It avoids a second source of truth for file selection and duplicate handling
+- The shared upload pipeline already recreates albums once asset membership is populated
+- It makes partial indexing visible immediately because missing image-info means missing source metadata
 
 ---
 

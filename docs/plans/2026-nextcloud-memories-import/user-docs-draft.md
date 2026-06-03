@@ -46,7 +46,7 @@ If you want to import arbitrary folders, use `from-folder` after exporting or mo
 | --- | --- | --- |
 | `--discover-only` | `false` | Print detected Memories configuration and exit |
 | `--timeline-root` | all configured roots | Limit import to one or more configured Memories roots; repeatable |
-| `--allow-unindexed` | `false` | Continue even if the source library appears partially indexed |
+| `--require-indexed` | `false` | Fail if files are found under the selected Memories roots without matching Memories metadata |
 
 ## Organization Options
 
@@ -56,7 +56,7 @@ If you want to import arbitrary folders, use `from-folder` after exporting or mo
 
 ## Supported Data
 
-The planned importer is expected to preserve:
+The hidden draft importer currently preserves:
 
 - files
 - capture date
@@ -70,7 +70,7 @@ The planned importer is expected to preserve:
 
 ## Limitations
 
-The planned importer is not expected to preserve:
+The hidden draft importer does not preserve:
 
 - people and face assignments
 - album collaborators and shares
@@ -78,7 +78,7 @@ The planned importer is not expected to preserve:
 - trashed state
 - data outside the configured Memories timeline roots
 
-Hidden or shared album semantics may be reduced during migration if Immich has no equivalent destination model.
+Shared album collaboration semantics are reduced during migration. Album membership is attached per imported file; the importer does not currently pull entire albums as a separate source of truth. When title disambiguation is needed, the current hidden implementation uses a deterministic source-derived suffix.
 
 ## Examples
 
@@ -154,16 +154,16 @@ immich-go upload from-nextcloud-memories \
   --api-key="$IMMICH_API_KEY"
 ```
 
-### Continue despite partial indexing
+### Fail if the Memories library is only partially indexed
 
 ```bash
 immich-go upload from-nextcloud-memories \
   --nextcloud-url=https://cloud.example.com \
   --nextcloud-user=alice \
   --nextcloud-password="$NEXTCLOUD_APP_PASSWORD" \
-  --allow-unindexed \
+  --require-indexed \
   --server=http://immich.example.com:2283 \
   --api-key="$IMMICH_API_KEY"
 ```
 
-Use this only when you understand that some metadata or album relationships may be incomplete on the source side.
+By default, the importer warns and continues if Nextcloud files exist under the selected Memories roots before Memories has indexed them fully. Use strict mode only when you want the import to fail closed on those gaps.
