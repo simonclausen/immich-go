@@ -10,10 +10,12 @@ import (
 	pathpkg "path"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/simulot/immich-go/adapters"
 	"github.com/simulot/immich-go/app"
+	"github.com/simulot/immich-go/internal/assets"
 	"github.com/simulot/immich-go/internal/fshelper/osfs"
 	"github.com/simulot/immich-go/internal/nextcloud"
 	"github.com/spf13/cobra"
@@ -33,8 +35,10 @@ type Command struct {
 	SyncAlbums             bool
 	RequireIndexed         bool
 	TagAlbumMembership     bool
+	UserMaps               []string
 
-	newRemoteFS func(context.Context, *nextcloud.Client, string) (fs.FS, error)
+	newRemoteFS           func(context.Context, *nextcloud.Client, string) (fs.FS, error)
+	getAlbumCollaborators func(context.Context, *nextcloud.Client, string, string) ([]nextcloud.AlbumCollaborator, error)
 
 	discover func(context.Context, nextcloud.Config) (*nextcloud.MemoriesDiscovery, error)
 	app      *app.Application
@@ -44,6 +48,9 @@ type Command struct {
 	metadataIndex *memoriesMetadataIndex
 	sourceFS      fs.FS
 	selectedRoots []string
+	userMappings  map[string]string
+	albumUsersMu  sync.Mutex
+	albumUsers    map[int][]adapters.AlbumUser
 }
 
 func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
@@ -58,6 +65,7 @@ func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&nc.SyncAlbums, "sync-albums", true, "Recreate Memories albums in Immich")
 	flags.BoolVar(&nc.RequireIndexed, "require-indexed", false, "Fail if files are found under the selected Memories roots without matching Memories metadata")
 	flags.BoolVar(&nc.TagAlbumMembership, "tag-album-membership", false, "Add synthetic tags encoding source album membership to support later shared-album reconciliation")
+	flags.StringArrayVar(&nc.UserMaps, "user-map", nil, "Map a Nextcloud user ID to an Immich user ID for album share restoration (<nextcloud-user>=<immich-user-id>). Can be specified multiple times")
 }
 
 // NewFromNextcloudMemoriesCommand creates a hidden command scaffold for the planned
@@ -242,6 +250,68 @@ func (nc *Command) resolveSelectedRoots(discovery *nextcloud.MemoriesDiscovery) 
 	return slices.Clone(nc.TimelineRoots), nil
 }
 
+func (nc *Command) DesiredAlbumUsers(ctx context.Context, album assets.Album) ([]adapters.AlbumUser, error) {
+	if len(nc.userMappings) == 0 || nc.client == nil {
+		return nil, nil
+	}
+	_, state, err := parseManagedAlbumState(album.Description)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil || state.Source != "nextcloud-memories" || state.AlbumID <= 0 || state.OwnerUID == "" || state.AlbumName == "" {
+		return nil, nil
+	}
+
+	nc.albumUsersMu.Lock()
+	if users, ok := nc.albumUsers[state.AlbumID]; ok {
+		cached := slices.Clone(users)
+		nc.albumUsersMu.Unlock()
+		return cached, nil
+	}
+	nc.albumUsersMu.Unlock()
+
+	getAlbumCollaborators := nc.getAlbumCollaborators
+	if getAlbumCollaborators == nil {
+		getAlbumCollaborators = nextcloud.GetAlbumCollaborators
+	}
+	collaborators, err := getAlbumCollaborators(ctx, nc.client, state.OwnerUID, state.AlbumName)
+	if err != nil {
+		return nil, err
+	}
+
+	desiredUsers := make([]adapters.AlbumUser, 0, len(collaborators))
+	seen := make(map[string]struct{}, len(collaborators))
+	for _, collaborator := range collaborators {
+		if collaborator.Type != nextcloud.AlbumCollaboratorTypeUser {
+			continue
+		}
+		mappedUserID, ok := nc.userMappings[strings.TrimSpace(collaborator.ID)]
+		if !ok || mappedUserID == "" {
+			if nc.app != nil {
+				nc.app.Log().Warn("skipping album collaborator without user mapping", "album", album.Title, "nextcloudUser", collaborator.ID)
+			}
+			continue
+		}
+		if _, ok := seen[mappedUserID]; ok {
+			continue
+		}
+		seen[mappedUserID] = struct{}{}
+		desiredUsers = append(desiredUsers, adapters.AlbumUser{
+			UserID: mappedUserID,
+			Role:   "editor",
+		})
+	}
+
+	nc.albumUsersMu.Lock()
+	if nc.albumUsers == nil {
+		nc.albumUsers = map[int][]adapters.AlbumUser{}
+	}
+	nc.albumUsers[state.AlbumID] = slices.Clone(desiredUsers)
+	nc.albumUsersMu.Unlock()
+
+	return desiredUsers, nil
+}
+
 func (nc *Command) intentSummary() string {
 	mode := "import"
 	if nc.DiscoverOnly {
@@ -267,6 +337,7 @@ func (nc *Command) intentSummary() string {
 		fmt.Sprintf("  sync-albums: %t", nc.SyncAlbums),
 		fmt.Sprintf("  require-indexed: %t", nc.RequireIndexed),
 		fmt.Sprintf("  tag-album-membership: %t", nc.TagAlbumMembership),
+		fmt.Sprintf("  user-maps: %d", len(nc.userMappings)),
 		fmt.Sprintf("  skip-verify-ssl: %t", nc.NextcloudSkipVerifySSL),
 	}, "\n")
 }
@@ -333,6 +404,9 @@ func (nc *Command) validate() error {
 	nc.NextcloudPassword = strings.TrimSpace(nc.NextcloudPassword)
 	nc.NextcloudLocalDir = strings.TrimSpace(nc.NextcloudLocalDir)
 	nc.TimelineRoots = normalizeTimelineRoots(nc.TimelineRoots)
+	nc.UserMaps = normalizeUserMaps(nc.UserMaps)
+	nc.userMappings = map[string]string{}
+	nc.albumUsers = map[int][]adapters.AlbumUser{}
 
 	if nc.NextcloudURL == "" {
 		joinedErr = errors.Join(joinedErr, errors.New("missing the parameter --nextcloud-url, Nextcloud base URL"))
@@ -366,6 +440,18 @@ func (nc *Command) validate() error {
 			joinedErr = errors.Join(joinedErr, fmt.Errorf("invalid --timeline-root %q: must start with /", root))
 		}
 	}
+	for _, userMap := range nc.UserMaps {
+		sourceUser, targetUser, err := splitUserMap(userMap)
+		if err != nil {
+			joinedErr = errors.Join(joinedErr, err)
+			continue
+		}
+		if existingTargetUser, ok := nc.userMappings[sourceUser]; ok && existingTargetUser != targetUser {
+			joinedErr = errors.Join(joinedErr, fmt.Errorf("conflicting --user-map for %q: %q and %q", sourceUser, existingTargetUser, targetUser))
+			continue
+		}
+		nc.userMappings[sourceUser] = targetUser
+	}
 
 	return joinedErr
 }
@@ -397,4 +483,29 @@ func normalizeTimelineRoots(roots []string) []string {
 	}
 
 	return normalized
+}
+
+func normalizeUserMaps(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func splitUserMap(value string) (string, string, error) {
+	sourceUser, targetUser, ok := strings.Cut(value, "=")
+	if !ok {
+		return "", "", fmt.Errorf("invalid --user-map %q: expected <nextcloud-user>=<immich-user-id>", value)
+	}
+	sourceUser = strings.TrimSpace(sourceUser)
+	targetUser = strings.TrimSpace(targetUser)
+	if sourceUser == "" || targetUser == "" {
+		return "", "", fmt.Errorf("invalid --user-map %q: expected <nextcloud-user>=<immich-user-id>", value)
+	}
+	return sourceUser, targetUser, nil
 }

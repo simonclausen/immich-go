@@ -15,6 +15,7 @@ import (
 
 	"github.com/simulot/immich-go/adapters"
 	"github.com/simulot/immich-go/app"
+	"github.com/simulot/immich-go/internal/assets"
 	"github.com/simulot/immich-go/internal/nextcloud"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,7 @@ func TestNewFromNextcloudMemoriesCommandMetadata(t *testing.T) {
 	assert.NotNil(t, cmd.Flag("sync-albums"))
 	assert.NotNil(t, cmd.Flag("require-indexed"))
 	assert.NotNil(t, cmd.Flag("tag-album-membership"))
+	assert.NotNil(t, cmd.Flag("user-map"))
 }
 
 func TestCommandValidate(t *testing.T) {
@@ -108,6 +110,21 @@ func TestCommandValidate(t *testing.T) {
 		err := nc.validate()
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "--nextcloud-client-timeout")
+	})
+
+	t.Run("invalid user map", func(t *testing.T) {
+		t.Parallel()
+
+		nc := &Command{
+			NextcloudURL:           "https://cloud.example.com",
+			NextcloudUser:          "alice",
+			NextcloudPassword:      "secret",
+			NextcloudClientTimeout: 5 * time.Minute,
+			UserMaps:               []string{"bob"},
+		}
+		err := nc.validate()
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "--user-map")
 	})
 }
 
@@ -289,6 +306,7 @@ func TestCommandIntentSummary(t *testing.T) {
 		assert.Contains(t, summary, "timeline-roots: all configured Memories timeline roots")
 		assert.Contains(t, summary, "sync-albums: true")
 		assert.Contains(t, summary, "tag-album-membership: false")
+		assert.Contains(t, summary, "user-maps: 0")
 		assert.NotContains(t, summary, "secret")
 	})
 
@@ -313,8 +331,48 @@ func TestCommandIntentSummary(t *testing.T) {
 		assert.Contains(t, summary, "sync-albums: false")
 		assert.Contains(t, summary, "require-indexed: true")
 		assert.Contains(t, summary, "tag-album-membership: true")
+		assert.Contains(t, summary, "user-maps: 0")
 		assert.Contains(t, summary, "skip-verify-ssl: true")
 	})
+}
+
+func TestCommandDesiredAlbumUsersMapsCollaborators(t *testing.T) {
+	t.Parallel()
+
+	description, err := applyManagedAlbumState("Roadtrip notes", managedAlbumState{
+		Source:        "nextcloud-memories",
+		SchemaVersion: 1,
+		AlbumID:       42,
+		OwnerUID:      "alice",
+		AlbumName:     "Roadtrip",
+	})
+	require.NoError(t, err)
+
+	nc := &Command{
+		NextcloudURL:           "https://cloud.example.com",
+		NextcloudUser:          "alice",
+		NextcloudPassword:      "secret",
+		NextcloudClientTimeout: 5 * time.Minute,
+		UserMaps:               []string{"bob=immich-bob", "carol=immich-carol"},
+		client:                 &nextcloud.Client{},
+		app:                    newTestApp(t),
+		getAlbumCollaborators: func(ctx context.Context, client *nextcloud.Client, ownerUID string, albumName string) ([]nextcloud.AlbumCollaborator, error) {
+			assert.Equal(t, "alice", ownerUID)
+			assert.Equal(t, "Roadtrip", albumName)
+			return []nextcloud.AlbumCollaborator{
+				{ID: "bob", Label: "Bob", Type: nextcloud.AlbumCollaboratorTypeUser},
+				{ID: "team", Label: "Team", Type: nextcloud.AlbumCollaboratorTypeGroup},
+				{ID: "carol", Label: "Carol", Type: nextcloud.AlbumCollaboratorTypeUser},
+			}, nil
+		},
+	}
+	require.NoError(t, nc.validate())
+
+	users, err := nc.DesiredAlbumUsers(context.Background(), assets.Album{Title: "Roadtrip", Description: description})
+	require.NoError(t, err)
+	require.Len(t, users, 2)
+	assert.Equal(t, adapters.AlbumUser{UserID: "immich-bob", Role: "editor"}, users[0])
+	assert.Equal(t, adapters.AlbumUser{UserID: "immich-carol", Role: "editor"}, users[1])
 }
 
 func TestCommandRejectsPositionalArguments(t *testing.T) {

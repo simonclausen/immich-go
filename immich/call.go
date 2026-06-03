@@ -24,6 +24,8 @@ const (
 	EndPointGetAllAlbums           = "GetAllAlbums"
 	EndPointGetAlbumInfo           = "GetAlbumInfo"
 	EndPointAddAsstToAlbum         = "AddAssetToAlbum"
+	EndPointAddUsersToAlbum        = "AddUsersToAlbum"
+	EndPointUpdateAlbumUser        = "UpdateAlbumUser"
 	EndPointCreateAlbum            = "CreateAlbum"
 	EndPointGetAssetAlbums         = "GetAssetAlbums"
 	EndPointDeleteAlbum            = "DeleteAlbum"

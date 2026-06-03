@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Phase**: Hidden command supports source metadata and album mapping
+**Phase**: Hidden command supports source metadata, album mapping, and owned-album share restoration
 
 **Last Updated**: 2026-06-03
 
@@ -10,7 +10,7 @@
 
 The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration uses DAV directory walking. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Source-side metadata mapping is now wired through Memories day and image-info APIs, including capture date, GPS, description, rating, favorite, archive state, tags, and album membership. Public upload docs remain unchanged until the hidden command is promoted.
 
-Shared-album reconstruction is now explicitly drafted as a follow-up phase that stores migration state on the destination Immich server rather than in local manifests.
+Shared-album reconstruction now has its first implemented restore path: owned albums store source state on the destination, the importer can read Nextcloud DAV collaborator metadata, and reruns restore mapped album collaborators idempotently through the Immich album-user APIs.
 
 ---
 
@@ -85,7 +85,7 @@ Shared-album reconstruction is now explicitly drafted as a follow-up phase that 
   - Added DAV filesystem tests for path handling and file reads
   - Added adapter browse tests for media filtering and overlapping-root deduplication
 
-- [ ] Draft shared-album reconstruction follow-up
+- [x] Draft shared-album reconstruction follow-up
   - Persist source album identity on destination albums with a managed description block
   - Persist source album membership on assets with synthetic tags behind an opt-in flag
   - Add a repeatable user reconciliation step
@@ -95,6 +95,13 @@ Shared-album reconstruction is now explicitly drafted as a follow-up phase that 
   - Owned source albums now stamp a managed description block on recreated destination albums
   - Added a hidden `--tag-album-membership` opt-in flag to stamp synthetic source album membership tags on imported assets
   - Added focused tests for the description block format and synthetic tag generation
+
+- [x] Restore owned-album collaborators when explicit user mappings are provided
+  - Added Immich album-user client support for reading album users, adding users, and updating roles
+  - Added Nextcloud DAV collaborator lookup for owned Memories albums via `nc:collaborators`
+  - Added repeatable `--user-map` flags so source user IDs can be mapped to destination Immich user IDs
+  - The upload pipeline now asks source adapters for desired album users and restores only missing or mismatched collaborators on reruns
+  - Added focused tests for the DAV collaborator lookup, user-map parsing, adapter share resolution, and upload-side album-user restoration
 
 - [ ] Promote draft docs into public docs after implementation ships
 
