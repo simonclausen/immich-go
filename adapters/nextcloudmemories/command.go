@@ -32,6 +32,7 @@ type Command struct {
 	TimelineRoots          []string
 	SyncAlbums             bool
 	RequireIndexed         bool
+	TagAlbumMembership     bool
 
 	newRemoteFS func(context.Context, *nextcloud.Client, string) (fs.FS, error)
 
@@ -56,6 +57,7 @@ func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
 	flags.StringSliceVar(&nc.TimelineRoots, "timeline-root", nil, "Limit the import to configured Memories timeline roots. Can be specified multiple times")
 	flags.BoolVar(&nc.SyncAlbums, "sync-albums", true, "Recreate Memories albums in Immich")
 	flags.BoolVar(&nc.RequireIndexed, "require-indexed", false, "Fail if files are found under the selected Memories roots without matching Memories metadata")
+	flags.BoolVar(&nc.TagAlbumMembership, "tag-album-membership", false, "Add synthetic tags encoding source album membership to support later shared-album reconciliation")
 }
 
 // NewFromNextcloudMemoriesCommand creates a hidden command scaffold for the planned
@@ -264,6 +266,7 @@ func (nc *Command) intentSummary() string {
 		fmt.Sprintf("  timeline-roots: %s", rootScope),
 		fmt.Sprintf("  sync-albums: %t", nc.SyncAlbums),
 		fmt.Sprintf("  require-indexed: %t", nc.RequireIndexed),
+		fmt.Sprintf("  tag-album-membership: %t", nc.TagAlbumMembership),
 		fmt.Sprintf("  skip-verify-ssl: %t", nc.NextcloudSkipVerifySSL),
 	}, "\n")
 }

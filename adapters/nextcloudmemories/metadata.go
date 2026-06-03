@@ -19,6 +19,12 @@ type memoriesMetadataIndex struct {
 	byPath map[string]*assets.Metadata
 }
 
+type metadataMappingOptions struct {
+	OwnerUID           string
+	SyncAlbums         bool
+	TagAlbumMembership bool
+}
+
 func newMemoriesMetadataIndex() *memoriesMetadataIndex {
 	return &memoriesMetadataIndex{
 		byPath: map[string]*assets.Metadata{},
@@ -122,15 +128,19 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 		return index, nil
 	}
 
-	ownerUID := strings.TrimSpace(nc.NextcloudUser)
+	options := metadataMappingOptions{
+		OwnerUID:           strings.TrimSpace(nc.NextcloudUser),
+		SyncAlbums:         nc.SyncAlbums,
+		TagAlbumMembership: nc.TagAlbumMembership,
+	}
 	if nc.discovery.Describe.UID != nil && strings.TrimSpace(*nc.discovery.Describe.UID) != "" {
-		ownerUID = strings.TrimSpace(*nc.discovery.Describe.UID)
+		options.OwnerUID = strings.TrimSpace(*nc.discovery.Describe.UID)
 	}
 
 	infoQuery := nextcloud.MemoriesImageInfoQuery{
 		Tags: nc.discovery.Config.SystemTagsEnabled,
 	}
-	if nc.SyncAlbums && nc.discovery.Config.AlbumsEnabled {
+	if (nc.SyncAlbums || nc.TagAlbumMembership) && nc.discovery.Config.AlbumsEnabled {
 		infoQuery.Clusters = []string{"albums"}
 	}
 
@@ -154,7 +164,7 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 				return nil
 			}
 
-			md := metadataFromMemories(photo, info, ownerUID)
+			md := metadataFromMemories(photo, info, options)
 
 			mu.Lock()
 			index.Put(indexedPath, md)
@@ -169,7 +179,7 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 	return index, nil
 }
 
-func metadataFromMemories(photo nextcloud.MemoriesPhoto, info *nextcloud.MemoriesImageInfo, ownerUID string) *assets.Metadata {
+func metadataFromMemories(photo nextcloud.MemoriesPhoto, info *nextcloud.MemoriesImageInfo, options metadataMappingOptions) *assets.Metadata {
 	md := &assets.Metadata{
 		FileName:  info.Basename,
 		Archived:  photo.Archived,
@@ -201,8 +211,8 @@ func metadataFromMemories(photo nextcloud.MemoriesPhoto, info *nextcloud.Memorie
 		md.Longitude = longitude
 	}
 
+	tags := make([]string, 0, len(info.Tags)+len(info.Clusters.Albums))
 	if len(info.Tags) > 0 {
-		tags := make([]string, 0, len(info.Tags))
 		for _, tag := range info.Tags {
 			tag = strings.TrimSpace(tag)
 			if tag == "" {
@@ -210,27 +220,44 @@ func metadataFromMemories(photo nextcloud.MemoriesPhoto, info *nextcloud.Memorie
 			}
 			tags = append(tags, tag)
 		}
+	}
+
+	if len(info.Clusters.Albums) > 0 {
+		for _, album := range info.Clusters.Albums {
+			if options.TagAlbumMembership {
+				if tag := memoriesAlbumMembershipTag(album.AlbumID); tag != "" {
+					tags = append(tags, tag)
+				}
+			}
+		}
+
+		if options.SyncAlbums {
+			seenAlbums := map[string]struct{}{}
+			for _, album := range info.Clusters.Albums {
+				title := memoriesAlbumTitle(album, options.OwnerUID)
+				if title == "" {
+					continue
+				}
+				if _, ok := seenAlbums[title]; ok {
+					continue
+				}
+				seenAlbums[title] = struct{}{}
+				md.Albums = append(md.Albums, assets.NewAlbum("", title, memoriesOwnedAlbumDescription(album, options.OwnerUID)))
+			}
+			slices.SortFunc(md.Albums, func(a, b assets.Album) int {
+				return strings.Compare(a.Title, b.Title)
+			})
+		}
+	}
+	if len(tags) > 0 {
 		slices.Sort(tags)
 		for _, tag := range tags {
 			md.AddTag(tag)
 		}
 	}
-
-	if len(info.Clusters.Albums) > 0 {
-		seenAlbums := map[string]struct{}{}
-		for _, album := range info.Clusters.Albums {
-			title := memoriesAlbumTitle(album, ownerUID)
-			if title == "" {
-				continue
-			}
-			if _, ok := seenAlbums[title]; ok {
-				continue
-			}
-			seenAlbums[title] = struct{}{}
-			md.Albums = append(md.Albums, assets.NewAlbum("", title, ""))
-		}
-		slices.SortFunc(md.Albums, func(a, b assets.Album) int {
-			return strings.Compare(a.Title, b.Title)
+	if len(md.Tags) > 1 {
+		slices.SortFunc(md.Tags, func(a, b assets.Tag) int {
+			return strings.Compare(a.Value, b.Value)
 		})
 	}
 

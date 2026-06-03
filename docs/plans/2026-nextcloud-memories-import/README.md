@@ -140,6 +140,7 @@ These are draft flags for discussion, not committed API.
 | `--discover-only` |  | Print detected Memories config and exit |
 | `--timeline-root` |  | Limit import to configured Memories roots; repeatable |
 | `--sync-albums` |  | Recreate Memories albums in Immich; default `true` |
+| `--tag-album-membership` |  | Add synthetic tags encoding source album membership for later shared-album reconciliation |
 | `--require-indexed` |  | Fail if files are found under selected Memories roots without matching Memories metadata |
 
 ## Follow-Up Design Draft

@@ -169,6 +169,7 @@ func newTestApp(t *testing.T) *app.Application {
 
 	a := app.New(context.Background(), &cobra.Command{})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	a.Log().Logger = logger
 	bus := fileevent.NewBus()
 	tracker := assettracker.NewWithBus(logger, false, bus)
 	a.SetFileProcessor(fileprocessor.NewWithBus(tracker, logger, bus))

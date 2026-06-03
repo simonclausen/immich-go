@@ -43,6 +43,7 @@ func TestNewFromNextcloudMemoriesCommandMetadata(t *testing.T) {
 	assert.NotNil(t, cmd.Flag("timeline-root"))
 	assert.NotNil(t, cmd.Flag("sync-albums"))
 	assert.NotNil(t, cmd.Flag("require-indexed"))
+	assert.NotNil(t, cmd.Flag("tag-album-membership"))
 }
 
 func TestCommandValidate(t *testing.T) {
@@ -190,6 +191,7 @@ func TestPrepareImportUsesLocalDirectoryAsPreferredFileSource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, nc.sourceFS)
 	assert.Equal(t, []string{"/Photos"}, nc.selectedRoots)
+	nc.metadataIndex = newMemoriesMetadataIndex()
 
 	groups := collectGroups(nc.Browse(context.Background()))
 	require.Len(t, groups, 1)
@@ -286,6 +288,7 @@ func TestCommandIntentSummary(t *testing.T) {
 		assert.Contains(t, summary, "source-files: webdav")
 		assert.Contains(t, summary, "timeline-roots: all configured Memories timeline roots")
 		assert.Contains(t, summary, "sync-albums: true")
+		assert.Contains(t, summary, "tag-album-membership: false")
 		assert.NotContains(t, summary, "secret")
 	})
 
@@ -298,6 +301,7 @@ func TestCommandIntentSummary(t *testing.T) {
 			NextcloudLocalDir:      "/srv/nextcloud-sync",
 			SyncAlbums:             false,
 			RequireIndexed:         true,
+			TagAlbumMembership:     true,
 			NextcloudSkipVerifySSL: true,
 			TimelineRoots:          []string{"/Photos", "/Scans"},
 		}
@@ -308,6 +312,7 @@ func TestCommandIntentSummary(t *testing.T) {
 		assert.Contains(t, summary, "timeline-roots: /Photos, /Scans")
 		assert.Contains(t, summary, "sync-albums: false")
 		assert.Contains(t, summary, "require-indexed: true")
+		assert.Contains(t, summary, "tag-album-membership: true")
 		assert.Contains(t, summary, "skip-verify-ssl: true")
 	})
 }

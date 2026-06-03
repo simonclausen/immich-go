@@ -91,6 +91,11 @@ Shared-album reconstruction is now explicitly drafted as a follow-up phase that 
   - Add a repeatable user reconciliation step
   - Keep migration-tag cleanup opt-in and disabled by default
 
+- [x] Start shared-album reconstruction state in the hidden importer
+  - Owned source albums now stamp a managed description block on recreated destination albums
+  - Added a hidden `--tag-album-membership` opt-in flag to stamp synthetic source album membership tags on imported assets
+  - Added focused tests for the description block format and synthetic tag generation
+
 - [ ] Promote draft docs into public docs after implementation ships
 
 ### 2026-06-02: Album Membership Uses Source Metadata

@@ -26,15 +26,15 @@ func TestMetadataFromMemoriesMapsArchivedAndSharedAlbums(t *testing.T) {
 		},
 	}
 	info.Clusters.Albums = []nextcloud.MemoriesAlbum{
-		{Name: "Roadtrip", User: "alice"},
-		{Name: "Roadtrip", User: "bob", UserDisplay: "Bob"},
+		{AlbumID: 7, Name: "Roadtrip", User: "alice"},
+		{AlbumID: 9, Name: "Roadtrip", User: "bob", UserDisplay: "Bob"},
 	}
 
 	md := metadataFromMemories(nextcloud.MemoriesPhoto{
 		Archived:   true,
 		IsFavorite: true,
 		DateTaken:  1700000000,
-	}, info, "alice")
+	}, info, metadataMappingOptions{OwnerUID: "alice", SyncAlbums: true})
 
 	require.NotNil(t, md)
 	assert.True(t, md.Archived)
@@ -48,5 +48,25 @@ func TestMetadataFromMemoriesMapsArchivedAndSharedAlbums(t *testing.T) {
 	assert.Equal(t, "Travel", md.Tags[0].Value)
 	require.Len(t, md.Albums, 2)
 	assert.Equal(t, "Roadtrip", md.Albums[0].Title)
+	assert.Contains(t, md.Albums[0].Description, "\"album_id\":7")
+	assert.Contains(t, md.Albums[0].Description, "\"owner_uid\":\"alice\"")
 	assert.Equal(t, "Roadtrip (shared by Bob)", md.Albums[1].Title)
+	assert.Empty(t, md.Albums[1].Description)
+}
+
+func TestMetadataFromMemoriesOptionallyTagsAlbumMembership(t *testing.T) {
+	t.Parallel()
+
+	info := &nextcloud.MemoriesImageInfo{}
+	info.Clusters.Albums = []nextcloud.MemoriesAlbum{{AlbumID: 42, Name: "Roadtrip", User: "alice"}}
+
+	md := metadataFromMemories(nextcloud.MemoriesPhoto{}, info, metadataMappingOptions{
+		OwnerUID:           "alice",
+		TagAlbumMembership: true,
+	})
+
+	require.NotNil(t, md)
+	require.Len(t, md.Tags, 1)
+	assert.Equal(t, "immich-go/src/nextcloud-memories/album/42", md.Tags[0].Value)
+	assert.Empty(t, md.Albums)
 }
