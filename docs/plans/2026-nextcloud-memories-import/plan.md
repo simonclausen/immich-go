@@ -149,7 +149,55 @@
 
 ---
 
-## Step 7: Tests and Public Documentation
+## Step 7: Persist Shared-Album Reconstruction State
+
+**Files**:
+
+- `adapters/nextcloudmemories/albums.go`
+- `docs/plans/2026-nextcloud-memories-import/shared-album-reconciliation.md`
+
+**Changes**:
+
+- Use Memories `album_id` as the canonical shared-album source key
+- Append a managed machine-readable state block to destination album descriptions for owned albums
+- Optionally stamp assets with synthetic source album membership tags to support later reconciliation
+- Keep this state server-stored so retries do not depend on local manifests
+
+**Testable**:
+
+- State block parsing and replacement
+- Tag namespace generation
+- Idempotent reruns without duplicate state
+
+**Mergeable**: Yes. This can land before reconciliation if the state format is stable.
+
+---
+
+## Step 8: Restore Shares and Reconcile Shared Albums
+
+**Files**:
+
+- `adapters/nextcloudmemories/albums.go`
+- `adapters/nextcloudmemories/reconcile.go`
+
+**Changes**:
+
+- Restore owned-album collaborators when a Nextcloud-to-Immich user mapping is available
+- Add a user-driven reconciliation mode that matches synthetic asset tags to accessible destination albums using the persisted source `album_id`
+- Add optional cleanup of successfully resolved synthetic tags, disabled by default
+
+**Testable**:
+
+- Share restoration for owned albums
+- Reconciliation after owner import
+- Repeatable reconciliation runs
+- Cleanup behavior gated behind an explicit flag
+
+**Mergeable**: Yes. Share restoration and reconciliation can be introduced after the server-stored state model is settled.
+
+---
+
+## Step 9: Tests and Public Documentation
 
 **Files**:
 

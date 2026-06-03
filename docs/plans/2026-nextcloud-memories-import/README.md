@@ -16,7 +16,8 @@ The command should feel like a true Memories migration:
 
 - Not implementing a generic Nextcloud WebDAV importer for arbitrary folders
 - Not migrating people or face assignments
-- Not migrating album collaborators, shares, or comments
+- Not migrating album collaborators or shares in the initial single-user import pass
+- Not migrating comments
 - Not exposing a public command in shipped docs before the feature exists
 - Not changing existing upload command behavior for current sources
 
@@ -119,8 +120,9 @@ Implication for implementation:
 | Archived state | Yes | Preserved when detectable from Memories |
 | Albums | Yes | Recreated in Immich |
 | Tags | Yes | Recreated as Immich tags |
+| Owned album shares | Planned | Follow-up phase when user mapping is available |
+| Shared album reconstruction | Planned | Follow-up reconciliation mode backed by server-stored migration state |
 | People / faces | No | Intentionally out of scope |
-| Album shares / collaborators | No | No equivalent migration target in this proposal |
 | Comments | No | No destination mapping planned |
 | Trash state | No | No destination mapping in current upload flow |
 
@@ -140,6 +142,20 @@ These are draft flags for discussion, not committed API.
 | `--sync-albums` |  | Recreate Memories albums in Immich; default `true` |
 | `--require-indexed` |  | Fail if files are found under selected Memories roots without matching Memories metadata |
 
+## Follow-Up Design Draft
+
+The base hidden command remains a single-user import.
+
+A separate follow-up design is now drafted for restoring shared albums incrementally across multiple user imports without relying on local state. That draft prefers:
+
+- `album_id` as the canonical source album key
+- machine-readable album state appended to destination album descriptions
+- synthetic asset tags for source album membership, behind an opt-in import flag
+- owned-album share restoration during import when user mapping is available
+- user-driven reconciliation with optional cleanup disabled by default
+
+See `shared-album-reconciliation.md` in this plan folder for the detailed design.
+
 ## Open Questions
 
 1. Should strict partial-index enforcement remain optional, or should the importer eventually surface a stronger summary/report for unindexed files?
@@ -158,3 +174,5 @@ Reason:
 - Draft UX and example docs should live under `docs/plans/` until implementation lands
 
 See `user-docs-draft.md` in this plan folder for the current draft of the future user-facing documentation.
+
+See `shared-album-reconciliation.md` in this plan folder for the current draft of the server-stored state model and reconciliation behavior for shared albums.

@@ -4,11 +4,13 @@
 
 **Phase**: Hidden command supports source metadata and album mapping
 
-**Last Updated**: 2026-06-02
+**Last Updated**: 2026-06-03
 
 **Summary**:
 
 The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration uses DAV directory walking. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Source-side metadata mapping is now wired through Memories day and image-info APIs, including capture date, GPS, description, rating, favorite, archive state, tags, and album membership. Public upload docs remain unchanged until the hidden command is promoted.
+
+Shared-album reconstruction is now explicitly drafted as a follow-up phase that stores migration state on the destination Immich server rather than in local manifests.
 
 ---
 
@@ -83,6 +85,12 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
   - Added DAV filesystem tests for path handling and file reads
   - Added adapter browse tests for media filtering and overlapping-root deduplication
 
+- [ ] Draft shared-album reconstruction follow-up
+  - Persist source album identity on destination albums with a managed description block
+  - Persist source album membership on assets with synthetic tags behind an opt-in flag
+  - Add a repeatable user reconciliation step
+  - Keep migration-tag cleanup opt-in and disabled by default
+
 - [ ] Promote draft docs into public docs after implementation ships
 
 ### 2026-06-02: Album Membership Uses Source Metadata
@@ -95,6 +103,25 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
 - It avoids a second source of truth for file selection and duplicate handling
 - The shared upload pipeline already recreates albums once asset membership is populated
 - It makes partial indexing visible immediately because missing image-info means missing source metadata
+
+### 2026-06-03: Shared Albums Should Prefer Server-Stored Migration State
+
+**Decision**: Shared-album reconstruction should prefer state persisted in the destination Immich server rather than local manifests.
+
+**Rationale**:
+
+- user-scoped imports may be run from different machines
+- retries should not depend on preserving local files between runs
+- support and troubleshooting are simpler when the destination server remains the source of truth for migration state
+- the current Immich API has no dedicated custom album metadata field, so the practical draft uses a managed block in album descriptions plus synthetic asset tags
+
+**Follow-Up Draft**:
+
+- use Memories `album_id` as the canonical source album key
+- append a versioned machine-readable block to owned destination album descriptions
+- optionally tag assets with source album membership tags to enable later reconciliation
+- restore owned-album shares when user mapping is available
+- add reconciliation with cleanup disabled by default so repeated runs remain safe
 
 ---
 
