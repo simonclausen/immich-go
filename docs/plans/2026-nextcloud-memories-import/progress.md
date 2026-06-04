@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Phase**: Hidden command supports source metadata, album mapping, and owned-album share restoration
+**Phase**: Hidden command supports source metadata, album mapping, owned-album share restoration, and live-tested lazy metadata loading
 
-**Last Updated**: 2026-06-03
+**Last Updated**: 2026-06-04
 
 **Summary**:
 
-The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration uses DAV directory walking. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Source-side metadata mapping is now wired through Memories day and image-info APIs, including capture date, GPS, description, rating, favorite, archive state, tags, and album membership. Public upload docs remain unchanged until the hidden command is promoted.
+The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration uses DAV directory walking. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Source-side metadata mapping is now wired through Memories day and image-info APIs, including capture date, GPS, description, rating, favorite, archive state, tags, and album membership. After live testing against a real Nextcloud Memories instance, metadata enrichment was changed from eager full-library image-info hydration to a lazy per-asset lookup model so imports no longer stall before Browse() can emit assets. The importer also now tolerates observed live payload variants such as tag arrays and numeric album `shared` flags, and surfaces preparation progress through normal `INFO`/`DEBUG` logging plus concise terminal messages. Public upload docs remain unchanged until the hidden command is promoted.
 
 Shared-album reconstruction now has its first implemented restore path: owned albums store source state on the destination, the importer can read Nextcloud DAV collaborator metadata, and reruns restore mapped album collaborators idempotently through the Immich album-user APIs.
 
@@ -81,6 +81,13 @@ Shared-album reconstruction now has its first implemented restore path: owned al
   - Added partial-index detection so DAV-enumerated files without Memories metadata warn and continue by default, with `--require-indexed` available for fail-closed imports
   - Shared albums are renamed with an owner suffix when needed to avoid album title collisions in Immich
 
+- [x] Make metadata enrichment robust for live Memories libraries
+  - Switched from eager full-library `image/info` hydration to lazy per-asset metadata lookup during browse
+  - Kept metadata enrichment best-effort so source-side API incompatibilities no longer collapse imports into `0 assets found`
+  - Added compatibility handling for observed live payload variants including array-shaped `tags` and numeric album `shared` flags
+  - Added preparation progress logging that is visible in both the log file and normal no-UI terminal runs
+  - Verified the revised importer with real dry-run and non-dry-run test migrations against a live Nextcloud Memories source and test Immich destination
+
 - [x] Add focused tests for discovery and base enumeration
   - Added DAV filesystem tests for path handling and file reads
   - Added adapter browse tests for media filtering and overlapping-root deduplication
@@ -115,6 +122,17 @@ Shared-album reconstruction now has its first implemented restore path: owned al
 - It avoids a second source of truth for file selection and duplicate handling
 - The shared upload pipeline already recreates albums once asset membership is populated
 - It makes partial indexing visible immediately because missing image-info means missing source metadata
+
+### 2026-06-04: Metadata Hydration Must Not Block Asset Enumeration
+
+**Decision**: Keep Memories metadata enrichment, but switch from eager full-library `image/info` hydration to lazy per-asset loading during browse.
+
+**Rationale**:
+
+- live testing showed that eager hydration can front-load tens of thousands of `image/info` requests before the first asset is emitted
+- this made the importer appear hung even when DAV enumeration itself was healthy
+- lazy loading preserves metadata fidelity for imported assets while restoring the earlier "enumerate first" behavior of the DAV-backed importer
+- best-effort enrichment is safer for real Memories deployments that may return payload variants not covered by the original typed structs
 
 ### 2026-06-03: Shared Albums Should Prefer Server-Stored Migration State
 
