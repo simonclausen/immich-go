@@ -163,7 +163,16 @@ func (nc *Command) assetFromInfo(name string, info fs.FileInfo, infoCollector *f
 		return asset, nil
 	}
 
-	md, ok := nc.metadataIndex.Get(name)
+	md, ok, err := nc.metadataIndex.Get(context.Background(), name)
+	if err != nil {
+		if nc.RequireIndexed {
+			return nil, err
+		}
+		if nc.app != nil {
+			nc.app.Log().Warn("Nextcloud Memories metadata lookup failed; importing without source metadata", "file", name, "err", err)
+		}
+		return asset, nil
+	}
 	if !ok {
 		if nc.RequireIndexed {
 			return nil, fmt.Errorf("Memories metadata missing for %q; the source library appears partially indexed. Rerun without --require-indexed to continue", name)

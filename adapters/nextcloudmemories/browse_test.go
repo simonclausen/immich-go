@@ -2,8 +2,11 @@ package nextcloudmemories
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/simulot/immich-go/internal/assettracker"
 	"github.com/simulot/immich-go/internal/fileevent"
 	"github.com/simulot/immich-go/internal/fileprocessor"
+	"github.com/simulot/immich-go/internal/nextcloud"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,16 +90,16 @@ func TestBrowseEnrichesAssetsWithMemoriesMetadata(t *testing.T) {
 			"Photos/IMG_0001.JPG": {Data: []byte("image"), ModTime: time.Unix(1700000000, 0)},
 		},
 		selectedRoots: []string{"/Photos"},
-		metadataIndex: &memoriesMetadataIndex{
-			byPath: map[string]*assets.Metadata{
-				"Photos/IMG_0001.JPG": {
-					Description: "Sunset",
-					Favorited:   true,
-					Rating:      5,
-					Albums:      []assets.Album{assets.NewAlbum("", "Roadtrip", "")},
-					Tags:        []assets.Tag{{Name: "Travel", Value: "Travel"}},
-				},
-			},
+		metadataIndex: newMemoriesMetadataIndex(),
+	}
+	nc.metadataIndex.photosByPath["Photos/IMG_0001.JPG"] = &indexedMemoriesPhoto{
+		loaded: true,
+		metadata: &assets.Metadata{
+			Description: "Sunset",
+			Favorited:   true,
+			Rating:      5,
+			Albums:      []assets.Album{assets.NewAlbum("", "Roadtrip", "")},
+			Tags:        []assets.Tag{{Name: "Travel", Value: "Travel"}},
 		},
 	}
 
@@ -148,6 +152,49 @@ func TestBrowseRejectsUnindexedAssetsWhenStrictModeIsRequested(t *testing.T) {
 	assert.Empty(t, groups)
 }
 
+func TestBrowseFallsBackWhenMetadataIndexBuildFails(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.php/apps/memories/api/days":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `[{"dayid":19723,"count":1}]`)
+		case "/index.php/apps/memories/api/days/19723":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `[{"fileid":42,"basename":"IMG_0001.JPG","mimetype":"image/jpeg","dayid":19723,"datetaken":1700000000}]`)
+		case "/index.php/apps/memories/api/image/info/42":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"fileid":42,"filename":"/Photos/IMG_0001.JPG","tags":123}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+
+	nc := &Command{
+		app: newTestApp(t),
+		sourceFS: fstest.MapFS{
+			"Photos/IMG_0001.JPG": {Data: []byte("image")},
+		},
+		selectedRoots: []string{"/Photos"},
+		client:        client,
+		discovery: &nextcloud.MemoriesDiscovery{
+			Config: nextcloud.MemoriesConfig{SystemTagsEnabled: true},
+		},
+	}
+
+	groups := collectGroups(nc.Browse(context.Background()))
+	require.Len(t, groups, 1)
+	assert.Nil(t, groups[0].Assets[0].FromApplication)
+	assert.NotNil(t, nc.metadataIndex)
+	assert.Len(t, nc.metadataIndex.photosByPath, 1)
+	counts := nc.app.FileProcessor().Logger().GetCounts()
+	assert.EqualValues(t, 1, counts[fileevent.DiscoveredImage])
+}
+
 func TestTimelineRootToFSPath(t *testing.T) {
 	t.Parallel()
 
@@ -174,4 +221,17 @@ func newTestApp(t *testing.T) *app.Application {
 	tracker := assettracker.NewWithBus(logger, false, bus)
 	a.SetFileProcessor(fileprocessor.NewWithBus(tracker, logger, bus))
 	return a
+}
+
+func mustNewClient(t *testing.T, baseURL string) *nextcloud.Client {
+	t.Helper()
+
+	client, err := nextcloud.NewClient(nextcloud.Config{
+		BaseURL:  baseURL,
+		Username: "alice",
+		Password: "secret",
+		Timeout:  time.Minute,
+	})
+	require.NoError(t, err)
+	return client
 }

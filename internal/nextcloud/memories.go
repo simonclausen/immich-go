@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	pathpkg "path"
-	"strconv"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -92,28 +92,88 @@ type MemoriesPhoto struct {
 // MemoriesAlbum is the subset of album data returned by image info cluster
 // expansions and the album list API that is needed for import mapping.
 type MemoriesAlbum struct {
-	AlbumID     int    `json:"album_id"`
-	ClusterID   string `json:"cluster_id"`
-	Name        string `json:"name"`
-	User        string `json:"user"`
-	UserDisplay string `json:"user_display"`
-	Shared      bool   `json:"shared"`
-	Location    string `json:"location"`
+	AlbumID     int          `json:"album_id"`
+	ClusterID   string       `json:"cluster_id"`
+	Name        string       `json:"name"`
+	User        string       `json:"user"`
+	UserDisplay string       `json:"user_display"`
+	Shared      memoriesBool `json:"shared"`
+	Location    string       `json:"location"`
 }
 
 // MemoriesImageInfo contains the file path and per-file metadata used to enrich
 // imported assets.
 type MemoriesImageInfo struct {
-	FileID    int               `json:"fileid"`
-	DateTaken int64             `json:"datetaken"`
-	Basename  string            `json:"basename"`
-	MimeType  string            `json:"mimetype"`
-	FileName  string            `json:"filename,omitempty"`
-	Tags      map[string]string `json:"tags,omitempty"`
-	Exif      map[string]any    `json:"exif,omitempty"`
+	FileID    int            `json:"fileid"`
+	DateTaken int64          `json:"datetaken"`
+	Basename  string         `json:"basename"`
+	MimeType  string         `json:"mimetype"`
+	FileName  string         `json:"filename,omitempty"`
+	Tags      memoriesTags   `json:"tags,omitempty"`
+	Exif      map[string]any `json:"exif,omitempty"`
 	Clusters  struct {
 		Albums []MemoriesAlbum `json:"albums,omitempty"`
 	} `json:"clusters,omitempty"`
+}
+
+type memoriesTags map[string]string
+
+func (t *memoriesTags) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*t = nil
+		return nil
+	}
+
+	var objectValue map[string]string
+	if err := json.Unmarshal(data, &objectValue); err == nil {
+		*t = objectValue
+		return nil
+	}
+
+	var stringList []string
+	if err := json.Unmarshal(data, &stringList); err == nil {
+		mapped := make(map[string]string, len(stringList))
+		for i, value := range stringList {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			mapped[strconv.Itoa(i)] = value
+		}
+		*t = mapped
+		return nil
+	}
+
+	var mixedList []any
+	if err := json.Unmarshal(data, &mixedList); err == nil {
+		mapped := make(map[string]string, len(mixedList))
+		for i, item := range mixedList {
+			switch value := item.(type) {
+			case string:
+				value = strings.TrimSpace(value)
+				if value != "" {
+					mapped[strconv.Itoa(i)] = value
+				}
+			case map[string]any:
+				for _, key := range []string{"name", "label", "value"} {
+					if raw, ok := value[key]; ok {
+						if text, ok := raw.(string); ok {
+							text = strings.TrimSpace(text)
+							if text != "" {
+								mapped[strconv.Itoa(i)] = text
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+		*t = mapped
+		return nil
+	}
+
+	return fmt.Errorf("invalid Memories tags payload %q", trimmed)
 }
 
 type memoriesBool bool

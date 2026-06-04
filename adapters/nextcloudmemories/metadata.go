@@ -12,12 +12,7 @@ import (
 
 	"github.com/simulot/immich-go/internal/assets"
 	"github.com/simulot/immich-go/internal/nextcloud"
-	"golang.org/x/sync/errgroup"
 )
-
-type memoriesMetadataIndex struct {
-	byPath map[string]*assets.Metadata
-}
 
 type metadataMappingOptions struct {
 	OwnerUID           string
@@ -25,29 +20,101 @@ type metadataMappingOptions struct {
 	TagAlbumMembership bool
 }
 
+type indexedMemoriesPhoto struct {
+	photo    nextcloud.MemoriesPhoto
+	loaded   bool
+	metadata *assets.Metadata
+	loadErr  error
+}
+
+type memoriesMetadataIndex struct {
+	photosByPath  map[string]*indexedMemoriesPhoto
+	options       metadataMappingOptions
+	infoQuery     nextcloud.MemoriesImageInfoQuery
+	client        *nextcloud.Client
+	selectedRoots []string
+	app           interface {
+		Log() interface {
+			Info(msg string, args ...any)
+			Debug(msg string, args ...any)
+			Warn(msg string, args ...any)
+		}
+	}
+	mu sync.Mutex
+}
+
 func newMemoriesMetadataIndex() *memoriesMetadataIndex {
 	return &memoriesMetadataIndex{
-		byPath: map[string]*assets.Metadata{},
+		photosByPath: map[string]*indexedMemoriesPhoto{},
 	}
 }
 
-func (idx *memoriesMetadataIndex) Get(name string) (*assets.Metadata, bool) {
+func (idx *memoriesMetadataIndex) Get(ctx context.Context, name string) (*assets.Metadata, bool, error) {
 	if idx == nil {
-		return nil, false
+		return nil, false, nil
 	}
-	md, ok := idx.byPath[normalizeIndexedPath(name)]
-	return md, ok
+	key := normalizeIndexedPath(name)
+	idx.mu.Lock()
+	entry, ok := idx.photosByPath[key]
+	idx.mu.Unlock()
+	if !ok {
+		return nil, false, nil
+	}
+
+	idx.mu.Lock()
+	if entry.loaded {
+		md, err := entry.metadata, entry.loadErr
+		idx.mu.Unlock()
+		if err != nil {
+			return nil, true, err
+		}
+		return md, true, nil
+	}
+	idx.mu.Unlock()
+
+	info, err := nextcloud.GetMemoriesImageInfo(ctx, idx.client, entry.photo.FileID, idx.infoQuery)
+	if err != nil {
+		idx.mu.Lock()
+		entry.loaded = true
+		entry.loadErr = fmt.Errorf("failed to load Memories image info for file %d: %w", entry.photo.FileID, err)
+		idx.mu.Unlock()
+		return nil, true, entry.loadErr
+	}
+
+	indexedPath := normalizeIndexedPath(info.FileName)
+	if indexedPath == "" {
+		err := fmt.Errorf("Memories image info for file %d did not include a filename", entry.photo.FileID)
+		idx.mu.Lock()
+		entry.loaded = true
+		entry.loadErr = err
+		idx.mu.Unlock()
+		return nil, true, err
+	}
+	if !isSelectedRootPath(indexedPath, idx.selectedRoots) {
+		idx.mu.Lock()
+		entry.loaded = true
+		entry.metadata = nil
+		idx.mu.Unlock()
+		return nil, false, nil
+	}
+
+	md := metadataFromMemories(entry.photo, info, idx.options)
+	idx.mu.Lock()
+	entry.loaded = true
+	entry.metadata = md
+	idx.mu.Unlock()
+	return md, true, nil
 }
 
-func (idx *memoriesMetadataIndex) Put(name string, md *assets.Metadata) {
-	if idx == nil || md == nil {
+func (idx *memoriesMetadataIndex) Put(name string, photo nextcloud.MemoriesPhoto) {
+	if idx == nil {
 		return
 	}
 	key := normalizeIndexedPath(name)
 	if key == "" {
 		return
 	}
-	idx.byPath[key] = md
+	idx.photosByPath[key] = &indexedMemoriesPhoto{photo: photo}
 }
 
 func (nc *Command) ensureMetadataIndex(ctx context.Context) error {
@@ -60,25 +127,45 @@ func (nc *Command) ensureMetadataIndex(ctx context.Context) error {
 
 	index, err := nc.buildMetadataIndex(ctx)
 	if err != nil {
-		return err
+		// Metadata enrichment is intentionally best-effort.
+		//
+		// The original DAV-backed importer worked without any Memories metadata at
+		// all. Keep that behavior available by falling back to plain file import if
+		// the source-side metadata APIs fail.
+		if nc.app != nil {
+			nc.app.Log().Warn("Nextcloud Memories metadata enrichment unavailable; continuing without source metadata", "err", err)
+		}
+		index = newMemoriesMetadataIndex()
 	}
 	nc.metadataIndex = index
 	return nil
 }
 
 func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataIndex, error) {
-	photoByID := map[int]nextcloud.MemoriesPhoto{}
+	photoByPath := map[string]nextcloud.MemoriesPhoto{}
 	query := nextcloud.MemoriesTimelineQuery{
 		Recursive: true,
 		Hidden:    true,
 	}
+	if nc.app != nil {
+		nc.app.Log().Message("Preparing Nextcloud Memories metadata index for %s", strings.Join(nc.selectedRoots, ", "))
+	}
+	if nc.app != nil {
+		nc.app.Log().Info("building Nextcloud Memories metadata index", "roots", nc.selectedRoots)
+	}
 
 	for _, root := range nc.selectedRoots {
 		query.Folder = root
+		if nc.app != nil {
+			nc.app.Log().Info("listing Memories day buckets", "root", root)
+		}
 
 		days, err := nextcloud.GetMemoriesDays(ctx, nc.client, query)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list Memories days for %q: %w", root, err)
+		}
+		if nc.app != nil {
+			nc.app.Log().Info("listed Memories day buckets", "root", root, "days", len(days))
 		}
 
 		dayIDs := make([]int, 0, len(days))
@@ -88,13 +175,20 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 
 		for start := 0; start < len(dayIDs); start += 100 {
 			end := min(start+100, len(dayIDs))
+			if nc.app != nil {
+				nc.app.Log().Debug("listing Memories photos batch", "root", root, "start", start, "end", end, "totalDays", len(dayIDs))
+			}
 			photos, err := nextcloud.GetMemoriesDay(ctx, nc.client, dayIDs[start:end], query)
 			if err != nil {
 				return nil, fmt.Errorf("failed to list Memories photos for %q: %w", root, err)
 			}
 			for _, photo := range photos {
-				photoByID[photo.FileID] = mergeMemoriesPhoto(photoByID[photo.FileID], photo)
+				photoByPath[normalizeIndexedPath(path.Join(root, photo.Basename))] = mergeMemoriesPhoto(photoByPath[normalizeIndexedPath(path.Join(root, photo.Basename))], photo)
 			}
+		}
+		if nc.app != nil {
+			nc.app.Log().Info("collected Memories timeline photos", "root", root, "uniqueFiles", len(photoByPath))
+			nc.app.Log().Message("Collected %d indexed files from %s", len(photoByPath), root)
 		}
 	}
 
@@ -103,9 +197,15 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 		Archive:   true,
 		Hidden:    true,
 	}
+	if nc.app != nil {
+		nc.app.Log().Info("listing Memories archive day buckets")
+	}
 	archiveDays, err := nextcloud.GetMemoriesDays(ctx, nc.client, archiveQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list Memories archive days: %w", err)
+	}
+	if nc.app != nil {
+		nc.app.Log().Info("listed Memories archive day buckets", "days", len(archiveDays))
 	}
 	archiveDayIDs := make([]int, 0, len(archiveDays))
 	for _, day := range archiveDays {
@@ -113,18 +213,26 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 	}
 	for start := 0; start < len(archiveDayIDs); start += 100 {
 		end := min(start+100, len(archiveDayIDs))
+		if nc.app != nil {
+			nc.app.Log().Debug("listing Memories archived photos batch", "start", start, "end", end, "totalDays", len(archiveDayIDs))
+		}
 		photos, err := nextcloud.GetMemoriesDay(ctx, nc.client, archiveDayIDs[start:end], archiveQuery)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list Memories archived photos: %w", err)
 		}
 		for _, photo := range photos {
 			photo.Archived = true
-			photoByID[photo.FileID] = mergeMemoriesPhoto(photoByID[photo.FileID], photo)
+			key := normalizeIndexedPath(path.Join(query.Folder, photo.Basename))
+			photoByPath[key] = mergeMemoriesPhoto(photoByPath[key], photo)
 		}
 	}
 
 	index := newMemoriesMetadataIndex()
-	if len(photoByID) == 0 {
+	if len(photoByPath) == 0 {
+		if nc.app != nil {
+			nc.app.Log().Info("Nextcloud Memories metadata index is empty; no indexed files found in selected roots")
+			nc.app.Log().Message("No indexed files found in the selected Nextcloud Memories roots")
+		}
 		return index, nil
 	}
 
@@ -144,37 +252,20 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 		infoQuery.Clusters = []string{"albums"}
 	}
 
-	var mu sync.Mutex
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.SetLimit(8)
+	index.client = nc.client
+	index.selectedRoots = slices.Clone(nc.selectedRoots)
+	index.options = options
+	index.infoQuery = infoQuery
 
-	for _, photo := range photoByID {
-		photo := photo
-		group.Go(func() error {
-			info, err := nextcloud.GetMemoriesImageInfo(groupCtx, nc.client, photo.FileID, infoQuery)
-			if err != nil {
-				return fmt.Errorf("failed to load Memories image info for file %d: %w", photo.FileID, err)
-			}
-
-			indexedPath := normalizeIndexedPath(info.FileName)
-			if indexedPath == "" {
-				return fmt.Errorf("Memories image info for file %d did not include a filename", photo.FileID)
-			}
-			if !isSelectedRootPath(indexedPath, nc.selectedRoots) {
-				return nil
-			}
-
-			md := metadataFromMemories(photo, info, options)
-
-			mu.Lock()
-			index.Put(indexedPath, md)
-			mu.Unlock()
-			return nil
-		})
+	for indexedPath, photo := range photoByPath {
+		if indexedPath == "" || !isSelectedRootPath(indexedPath, nc.selectedRoots) {
+			continue
+		}
+		index.Put(indexedPath, photo)
 	}
-
-	if err := group.Wait(); err != nil {
-		return nil, err
+	if nc.app != nil {
+		nc.app.Log().Info("prepared lazy Nextcloud Memories metadata index", "files", len(index.photosByPath))
+		nc.app.Log().Message("Prepared lazy metadata index for %d files", len(index.photosByPath))
 	}
 	return index, nil
 }
@@ -267,6 +358,12 @@ func metadataFromMemories(photo nextcloud.MemoriesPhoto, info *nextcloud.Memorie
 func mergeMemoriesPhoto(current, incoming nextcloud.MemoriesPhoto) nextcloud.MemoriesPhoto {
 	if current.FileID == 0 {
 		return incoming
+	}
+	if current.FileID == 0 || incoming.FileID == 0 {
+		return current
+	}
+	if current.FileID == 0 {
+		current.FileID = incoming.FileID
 	}
 	if current.Basename == "" {
 		current.Basename = incoming.Basename

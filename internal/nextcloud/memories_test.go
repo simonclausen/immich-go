@@ -168,6 +168,40 @@ func TestGetMemoriesImageInfoRequestsOptionalExpansions(t *testing.T) {
 	assert.Equal(t, "Roadtrip", info.Clusters.Albums[0].Name)
 }
 
+func TestGetMemoriesImageInfoAcceptsArrayTags(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/index.php/apps/memories/api/image/info/42", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"fileid":42,"datetaken":1700000000,"basename":"IMG_0042.JPG","mimetype":"image/jpeg","filename":"/Photos/IMG_0042.JPG","tags":["Travel","Family"]}`)
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	info, err := GetMemoriesImageInfo(context.Background(), client, 42, MemoriesImageInfoQuery{Tags: true})
+	require.NoError(t, err)
+	assert.Equal(t, "Travel", info.Tags["0"])
+	assert.Equal(t, "Family", info.Tags["1"])
+}
+
+func TestGetMemoriesImageInfoAcceptsNumericAlbumSharedFlag(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/index.php/apps/memories/api/image/info/42", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"fileid":42,"datetaken":1700000000,"basename":"IMG_0042.JPG","mimetype":"image/jpeg","filename":"/Photos/IMG_0042.JPG","clusters":{"albums":[{"album_id":7,"cluster_id":"alice/Roadtrip","name":"Roadtrip","user":"alice","shared":1}]}}`)
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	info, err := GetMemoriesImageInfo(context.Background(), client, 42, MemoriesImageInfoQuery{Clusters: []string{"albums"}})
+	require.NoError(t, err)
+	require.Len(t, info.Clusters.Albums, 1)
+	assert.True(t, bool(info.Clusters.Albums[0].Shared))
+}
+
 func TestSplitTimelineRootsNormalizesLeadingSlashes(t *testing.T) {
 	t.Parallel()
 
