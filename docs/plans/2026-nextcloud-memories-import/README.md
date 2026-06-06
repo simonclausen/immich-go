@@ -18,7 +18,6 @@ The command should feel like a true Memories migration:
 - Not migrating people or face assignments
 - Not migrating album collaborators or shares in the initial single-user import pass
 - Not migrating comments
-- Not exposing a public command in shipped docs before the feature exists
 - Not changing existing upload command behavior for current sources
 
 ## Success Criteria
@@ -27,7 +26,7 @@ The command should feel like a true Memories migration:
 - The source scope is auto-discovered from Memories configuration by default
 - Escape hatches are available without turning the command into a generic folder crawler
 - Unsupported source data is documented clearly
-- Public docs remain accurate until implementation ships
+- Public docs and command visibility on the feature branch should track the current implementation closely so iteration happens against the intended user-facing surface
 
 ## Proposed Command Surface
 
@@ -145,7 +144,7 @@ These are draft flags for discussion, not committed API.
 
 ## Follow-Up Design Draft
 
-The base hidden command remains a single-user import.
+The base command remains a single-user import.
 
 A separate follow-up design is now drafted for restoring shared albums incrementally across multiple user imports without relying on local state. That draft prefers:
 
@@ -166,13 +165,13 @@ See `shared-album-reconciliation.md` in this plan folder for the detailed design
 
 ## Documentation Strategy
 
-This proposal deliberately does not modify the shipped upload command docs in `docs/commands/` yet.
+This proposal initially kept draft docs in `docs/plans/`, but that constraint no longer applies just because the work is happening incrementally on a feature branch.
 
 Reason:
 
-- The command does not exist yet
-- The project guidelines require user-facing docs to match implemented behavior
-- Draft UX and example docs should live under `docs/plans/` until implementation lands
+- branch-local command and doc visibility helps iteration against the real UX
+- the real constraint is that merged docs must match merged behavior
+- draft design notes still belong in `docs/plans/`, but implemented user-facing behavior can also be reflected in public docs on this branch
 
 See `user-docs-draft.md` in this plan folder for the current draft of the future user-facing documentation.
 

@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Phase**: Hidden command supports source metadata, album mapping, owned-album share restoration, and live-tested lazy metadata loading
+**Phase**: Command supports source metadata, album mapping, owned-album share restoration, and live-tested lazy metadata loading
 
 **Last Updated**: 2026-06-04
 
 **Summary**:
 
-The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the hidden command can enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration uses DAV directory walking. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Source-side metadata mapping is now wired through Memories day and image-info APIs, including capture date, GPS, description, rating, favorite, archive state, tags, and album membership. After live testing against a real Nextcloud Memories instance, metadata enrichment was changed from eager full-library image-info hydration to a lazy per-asset lookup model so imports no longer stall before Browse() can emit assets. The importer also now tolerates observed live payload variants such as tag arrays and numeric album `shared` flags, and surfaces preparation progress through normal `INFO`/`DEBUG` logging plus concise terminal messages. Public upload docs remain unchanged until the hidden command is promoted.
+The command shape, scope model, guardrails, and draft user-facing documentation have been outlined. The internal Nextcloud client layer uses `gowebdav` for basic DAV access plus custom `net/http` for non-DAV APIs. Discovery is implemented, and the command can enumerate supported media from the selected Memories timeline roots and hand those assets to the existing upload pipeline. Enumeration uses DAV directory walking. The command also supports reading file contents from a local synced directory instead of WebDAV while still using server discovery for Memories scope validation. Upload preparation reuses a single cached source read for checksum calculation and upload streaming, which removes an avoidable second fetch for non-local sources such as WebDAV. Source-side metadata mapping is now wired through Memories day and image-info APIs, including capture date, GPS, description, rating, favorite, archive state, tags, and album membership. After live testing against a real Nextcloud Memories instance, metadata enrichment was changed from eager full-library image-info hydration to a lazy per-asset lookup model so imports no longer stall before Browse() can emit assets. The importer also now tolerates observed live payload variants such as tag arrays and numeric album `shared` flags, and surfaces preparation progress through normal `INFO`/`DEBUG` logging plus concise terminal messages. Because development is happening on a feature branch, there is no longer a plan-level requirement to keep the command or matching docs hidden before merge; the remaining gate is implementation readiness.
 
 Shared-album reconstruction now has its first implemented restore path: owned albums store source state on the destination, the importer can read Nextcloud DAV collaborator metadata, and reruns restore mapped album collaborators idempotently through the Immich album-user APIs.
 
@@ -26,10 +26,10 @@ Shared-album reconstruction now has its first implemented restore path: owned al
 
 - [x] Draft user-facing command documentation
   - Added a planned command reference and examples in `user-docs-draft.md`
-  - Kept public docs unchanged because the command is not implemented
+  - Kept draft docs in the plan folder initially while the command surface was still changing
 
 - [x] Scaffold command UX and validation
-  - Added a hidden `from-nextcloud-memories` command shell
+  - Added a `from-nextcloud-memories` command shell
   - Added source flag registration, normalization, and validation for the planned UX contract
   - Added tests for command metadata, flag validation, and explicit not-implemented failure paths
   - Added a human-readable scaffold summary so the CLI UX can be reviewed before discovery exists
@@ -98,7 +98,7 @@ Shared-album reconstruction now has its first implemented restore path: owned al
   - Add a repeatable user reconciliation step
   - Keep migration-tag cleanup opt-in and disabled by default
 
-- [x] Start shared-album reconstruction state in the hidden importer
+- [x] Start shared-album reconstruction state in the importer
   - Owned source albums now stamp a managed description block on recreated destination albums
   - Added a hidden `--tag-album-membership` opt-in flag to stamp synthetic source album membership tags on imported assets
   - Added focused tests for the description block format and synthetic tag generation
@@ -110,7 +110,7 @@ Shared-album reconstruction now has its first implemented restore path: owned al
   - The upload pipeline now asks source adapters for desired album users and restores only missing or mismatched collaborators on reruns
   - Added focused tests for the DAV collaborator lookup, user-map parsing, adapter share resolution, and upload-side album-user restoration
 
-- [ ] Promote draft docs into public docs after implementation ships
+- [ ] Align command visibility and public docs with actual feature readiness on this branch
 
 ### 2026-06-02: Album Membership Uses Source Metadata
 
@@ -157,6 +157,16 @@ Shared-album reconstruction now has its first implemented restore path: owned al
 
 ## Decisions
 
+### 2026-06-06: Feature Branch Can Expose In-Progress Docs And Command Surface
+
+**Decision**: On this feature branch, the command and matching user-facing docs do not need to stay hidden purely because the work is still in progress.
+
+**Rationale**:
+
+- the branch will only be merged once the feature is ready
+- keeping the real command surface and docs visible makes iteration easier
+- the important guardrail is merge readiness, not temporary branch-local visibility
+
 ### 2026-06-01: Public Docs Stay Accurate
 
 **Decision**: Do not add `from-nextcloud-memories` to `docs/commands/upload.md` yet.
@@ -187,15 +197,15 @@ Shared-album reconstruction now has its first implemented restore path: owned al
 - `folders_path` is a UI navigation root, not the library definition
 - Importing outside `timeline_path` would violate user expectations
 
-### 2026-06-01: Command Stays Hidden Until Functional
+### 2026-06-01: Command Started Hidden During Early Scaffolding
 
-**Decision**: Register the scaffold command as hidden while discovery and browsing are still missing.
+**Decision**: The scaffold command started hidden while discovery and browsing were still missing.
 
 **Rationale**:
 
-- It allows iterative work on command UX in the real CLI surface
-- It avoids advertising a non-functional source in normal command listings
-- Public docs can remain accurate until the command becomes usable
+- It allowed iterative work on command UX in the real CLI surface
+- It reduced confusion while the command was only a stub
+- This is now superseded by the 2026-06-06 feature-branch decision
 
 ### 2026-06-01: Use `gowebdav` Only For DAV
 

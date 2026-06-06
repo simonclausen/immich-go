@@ -77,7 +77,7 @@
 - Discover-only output flow
 - Rejecting non-configured root overrides
 
-**Mergeable**: Yes. Command shell can land before full import.
+**Mergeable**: Yes. Command shell can land before full import, and on this feature branch it does not need to remain hidden solely because follow-up steps are still in progress.
 
 ---
 
@@ -209,7 +209,7 @@
 **Changes**:
 
 - Add focused tests for discovery, enumeration, metadata, and albums
-- Move the user-facing docs from draft status into shipped docs only when the command exists
+- Keep user-facing docs aligned with the implemented command surface on this feature branch, then ensure merged docs match merged behavior
 - Document supported and unsupported source data explicitly
 
 **Testable**:
@@ -217,4 +217,4 @@
 - `go test` coverage for the new adapter
 - Manual dry-run validation against a real Memories instance
 
-**Mergeable**: Only when implementation exists.
+**Mergeable**: Yes, once the documented behavior is implemented and tested at the level described by the docs being promoted.
