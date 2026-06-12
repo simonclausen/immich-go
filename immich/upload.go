@@ -21,6 +21,7 @@ type callValues string
 const (
 	TimeFormat    string     = "2006-01-02T15:04:05.000Z"
 	ctxCallValues callValues = "call-values"
+	uploadRetryAttempts      = 3
 )
 
 func setContextValue(kv map[string]string) serverRequestOption {
@@ -34,8 +35,6 @@ func setContextValue(kv map[string]string) serverRequestOption {
 }
 
 func (ic *ImmichClient) uploadAsset(ctx context.Context, la *assets.Asset, endPoint string, replaceID string) (AssetResponse, error) {
-	const uploadRetryAttempts = 3
-
 	var (
 		ar  AssetResponse
 		err error
@@ -43,7 +42,7 @@ func (ic *ImmichClient) uploadAsset(ctx context.Context, la *assets.Asset, endPo
 
 	for attempt := 1; attempt <= uploadRetryAttempts; attempt++ {
 		ar, err = ic.uploadAssetOnce(ctx, la, endPoint, replaceID)
-		if !shouldRetryUpload(err, attempt, uploadRetryAttempts) {
+		if !shouldRetryUpload(err, attempt) {
 			return ar, err
 		}
 
@@ -157,8 +156,8 @@ func shouldIgnoreClosedPipe(ar AssetResponse, err error) bool {
 	return errors.Is(err, io.ErrClosedPipe) || strings.Contains(err.Error(), "read/write on closed pipe")
 }
 
-func shouldRetryUpload(err error, attempt, maxAttempts int) bool {
-	if err == nil || attempt >= maxAttempts {
+func shouldRetryUpload(err error, attempt int) bool {
+	if err == nil || attempt >= uploadRetryAttempts {
 		return false
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

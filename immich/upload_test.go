@@ -12,11 +12,30 @@ import (
 	"testing/fstest"
 
 	"github.com/simulot/immich-go/internal/assets"
+<<<<<<< HEAD
 	"github.com/simulot/immich-go/internal/fshelper"
 )
 
+=======
+	"github.com/simulot/immich-go/internal/filetypes"
+	"github.com/simulot/immich-go/internal/fshelper"
+)
+
+func newTestImmichClient(t *testing.T, serverURL string) *ImmichClient {
+	t.Helper()
+
+	ic, err := NewImmichClient(serverURL, "key")
+	if err != nil {
+		t.Fatalf("NewImmichClient() error = %v", err)
+	}
+	ic.supportedMediaTypes = filetypes.DefaultSupportedMedia
+	return ic
+}
+
+>>>>>>> d3a63bd (fix(upload): retry transient asset upload failures)
 func TestUploadAssetIgnoresClosedPipeWhenServerAlreadyAcceptedUpload(t *testing.T) {
 	t.Parallel()
+	"github.com/simulot/immich-go/internal/filetypes"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/assets" {
@@ -27,7 +46,7 @@ func TestUploadAssetIgnoresClosedPipeWhenServerAlreadyAcceptedUpload(t *testing.
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"asset-id","status":"created"}`))
-		hj, ok := w.(http.Hijacker)
+	ic.supportedMediaTypes = filetypes.DefaultSupportedMedia
 		if !ok {
 			t.Fatal("response writer does not support hijacking")
 		}
@@ -39,10 +58,14 @@ func TestUploadAssetIgnoresClosedPipeWhenServerAlreadyAcceptedUpload(t *testing.
 	}))
 	defer server.Close()
 
+<<<<<<< HEAD
 	ic, err := NewImmichClient(server.URL, "key")
 	if err != nil {
 		t.Fatalf("NewImmichClient() error = %v", err)
 	}
+=======
+	ic := newTestImmichClient(t, server.URL)
+>>>>>>> d3a63bd (fix(upload): retry transient asset upload failures)
 	ic.client.Timeout = 2 * time.Second
 
 	la := &assets.Asset{
@@ -51,7 +74,7 @@ func TestUploadAssetIgnoresClosedPipeWhenServerAlreadyAcceptedUpload(t *testing.
 		FileSize:         len("upload payload"),
 		Checksum:         "checksum",
 		FileDate:         time.Unix(0, 0),
-	}
+	ic := newTestImmichClient(t, server.URL)
 	defer la.Close()
 
 	resp, err := ic.uploadAssetOnce(context.Background(), la, EndPointAssetUpload, "")
@@ -92,12 +115,16 @@ func TestUploadAssetRetriesTransientServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
+<<<<<<< HEAD
 	ic, err := NewImmichClient(server.URL, "key")
 	if err != nil {
 		t.Fatalf("NewImmichClient() error = %v", err)
 	}
+=======
+	ic := newTestImmichClient(t, server.URL)
+>>>>>>> d3a63bd (fix(upload): retry transient asset upload failures)
 
-	la := &assets.Asset{
+	ic := newTestImmichClient(t, server.URL)
 		File:             fshelper.FSName(fstest.MapFS{"video.mp4": {Data: []byte("upload payload")}}, "video.mp4"),
 		OriginalFileName: "video.mp4",
 		FileSize:         len("upload payload"),
@@ -125,13 +152,23 @@ func TestShouldRetryUpload(t *testing.T) {
 	t.Parallel()
 
 	err := callError{status: http.StatusBadGateway}
+<<<<<<< HEAD
 	if !shouldRetryUpload(err, 1, 3) {
-		t.Fatal("expected 502 to be retryable")
+	if !shouldRetryUpload(err, 1) {
 	}
 	if shouldRetryUpload(err, 3, 3) {
-		t.Fatal("did not expect retry on last attempt")
+	if shouldRetryUpload(err, 3) {
 	}
 	if shouldRetryUpload(context.Canceled, 1, 3) {
+=======
+	if !shouldRetryUpload(err, 1) {
+		t.Fatal("expected 502 to be retryable")
+	}
+	if shouldRetryUpload(err, 3) {
+		t.Fatal("did not expect retry on last attempt")
+	}
+	if shouldRetryUpload(context.Canceled, 1) {
+>>>>>>> d3a63bd (fix(upload): retry transient asset upload failures)
 		t.Fatal("did not expect context cancellation to be retryable")
 	}
 }
