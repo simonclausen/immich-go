@@ -112,7 +112,7 @@ This command is used to iterate on the UX and flag contract while the source imp
 	nc.RegisterFlags(cmd.Flags())
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return nc.Run(cmd.Context(), cmd, runner)
+		return nc.Run(ctx, cmd, runner)
 	}
 
 	return cmd
@@ -123,9 +123,6 @@ This command is used to iterate on the UX and flag contract while the source imp
 func (nc *Command) Run(ctx context.Context, cmd *cobra.Command, runner adapters.Runner) error {
 	if err := nc.validate(); err != nil {
 		return err
-	}
-	if ctx == nil {
-		ctx = context.Background()
 	}
 	if cmd != nil {
 		cmd.Println(nc.intentSummary())
@@ -227,7 +224,7 @@ func (nc *Command) prepareImport(ctx context.Context) error {
 		return err
 	}
 
-	sourceFS := fs.FS(remoteFS)
+	sourceFS := remoteFS
 	if nc.NextcloudLocalDir != "" {
 		sourceFS = nextcloud.NewPreferredLocalFS(osfs.DirFS(nc.NextcloudLocalDir), remoteFS)
 	}

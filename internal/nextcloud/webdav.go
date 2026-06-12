@@ -41,9 +41,12 @@ func NewWebDAVFS(ctx context.Context, client *Client, uid string) (*WebDAVFS, er
 	return newWebDAVFS(ctx, client.DAV(), pathpkg.Join("/files", uid), "nextcloud:"+uid), nil
 }
 
-func newWebDAVFS(_ context.Context, client davReadClient, rootPath string, name string) *WebDAVFS {
+func newWebDAVFS(ctx context.Context, client davReadClient, rootPath string, name string) *WebDAVFS {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &WebDAVFS{
-		ctx:      context.Background(),
+		ctx:      ctx,
 		client:   client,
 		rootPath: pathpkg.Clean(rootPath),
 		name:     name,

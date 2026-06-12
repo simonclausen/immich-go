@@ -14,6 +14,7 @@ import (
 const (
 	assetReasonArgKey    = "reason"
 	assetEventCodeArgKey = "eventCode"
+	assetEventFileArgKey = "file"
 )
 
 // AssetTracker tracks the complete lifecycle of assets (images/videos) from
@@ -203,7 +204,7 @@ func (at *AssetTracker) SetProcessed(file fshelper.FSAndName, eventCode fileeven
 	if at.bus != nil {
 		at.bus.Publish(fileevent.Event{
 			Code: fileevent.AssetStateTransitionProcessed,
-			Args: []any{"file", key, assetEventCodeArgKey, eventCode},
+			Args: []any{assetEventFileArgKey, key, assetEventCodeArgKey, eventCode},
 		})
 	}
 }
