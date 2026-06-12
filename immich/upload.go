@@ -19,9 +19,9 @@ import (
 type callValues string
 
 const (
-	TimeFormat    string     = "2006-01-02T15:04:05.000Z"
-	ctxCallValues callValues = "call-values"
-	uploadRetryAttempts      = 3
+	TimeFormat          string     = "2006-01-02T15:04:05.000Z"
+	ctxCallValues       callValues = "call-values"
+	uploadRetryAttempts            = 3
 )
 
 func setContextValue(kv map[string]string) serverRequestOption {
