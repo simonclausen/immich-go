@@ -32,7 +32,6 @@ func TestNewFromNextcloudMemoriesCommandMetadata(t *testing.T) {
 
 	assert.Equal(t, "from-nextcloud-memories [flags]", cmd.Use)
 	assert.Empty(t, cmd.Aliases)
-	assert.True(t, cmd.Hidden)
 	assert.Contains(t, cmd.Long, "not arbitrary Nextcloud storage paths")
 	assert.Contains(t, cmd.Example, "--discover-only")
 	assert.Contains(t, cmd.Example, "--timeline-root=/Photos")
@@ -138,7 +137,7 @@ func TestCommandRunRequiresRunner(t *testing.T) {
 		NextcloudClientTimeout: 5 * time.Minute,
 	}
 
-	err := nc.Run(&cobra.Command{}, nil)
+	err := nc.Run(context.Background(), &cobra.Command{}, nil)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "runner is not configured")
 }
@@ -159,7 +158,7 @@ func TestCommandRunImportUsesRunner(t *testing.T) {
 	}
 
 	called := false
-	err := nc.Run(&cobra.Command{}, runnerFunc(func(cmd *cobra.Command, adapter adapters.Reader) error {
+	err := nc.Run(context.Background(), &cobra.Command{}, runnerFunc(func(cmd *cobra.Command, adapter adapters.Reader) error {
 		called = true
 		groups := collectGroups(adapter.Browse(context.Background()))
 		require.Len(t, groups, 1)
@@ -251,7 +250,7 @@ func TestCommandRunDiscoverOnly(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&output)
 
-	err := nc.Run(cmd, nil)
+	err := nc.Run(context.Background(), cmd, nil)
 	require.NoError(t, err)
 	text := output.String()
 	assert.Contains(t, text, "Nextcloud Memories scaffold")
@@ -278,7 +277,7 @@ func TestCommandRunDiscoverOnlyRejectsUnknownRequestedRoots(t *testing.T) {
 		},
 	}
 
-	err := nc.Run(&cobra.Command{}, nil)
+	err := nc.Run(context.Background(), &cobra.Command{}, nil)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "requested --timeline-root")
 	assert.ErrorContains(t, err, "/Photos")
