@@ -95,7 +95,8 @@ func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error 
 func (nc *Command) emitAsset(ctx context.Context, gOut chan<- *assets.Group, seen map[string]struct{}, name string, info fs.FileInfo, infoCollector *filenames.InfoCollector, supportedMedia filetypes.SupportedMedia, processor interface {
 	RecordAssetDiscovered(context.Context, fshelper.FSAndName, int64, fileevent.Code)
 	RecordNonAsset(context.Context, fshelper.FSAndName, int64, fileevent.Code, ...any)
-}) error {
+},
+) error {
 	if matchesBanned(defaultBannedFiles, name, false) {
 		if processor != nil {
 			processor.RecordNonAsset(ctx, fshelper.FSName(nc.sourceFS, name), 0, fileevent.DiscoveredBanned, "reason", "banned file")

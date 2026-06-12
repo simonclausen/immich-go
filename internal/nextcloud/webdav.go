@@ -28,9 +28,11 @@ type WebDAVFS struct {
 
 const davOpenOp = "open"
 
-var _ fs.FS = (*WebDAVFS)(nil)
-var _ fs.ReadDirFS = (*WebDAVFS)(nil)
-var _ fs.StatFS = (*WebDAVFS)(nil)
+var (
+	_ fs.FS        = (*WebDAVFS)(nil)
+	_ fs.ReadDirFS = (*WebDAVFS)(nil)
+	_ fs.StatFS    = (*WebDAVFS)(nil)
+)
 
 // NewWebDAVFS creates a read-only filesystem rooted at /files/{uid}.
 func NewWebDAVFS(ctx context.Context, client *Client, uid string) (*WebDAVFS, error) {
@@ -38,13 +40,13 @@ func NewWebDAVFS(ctx context.Context, client *Client, uid string) (*WebDAVFS, er
 	if uid == "" {
 		return nil, errors.New("missing Nextcloud user ID for DAV browsing")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return newWebDAVFS(ctx, client.DAV(), pathpkg.Join("/files", uid), "nextcloud:"+uid), nil
 }
 
 func newWebDAVFS(ctx context.Context, client davReadClient, rootPath string, name string) *WebDAVFS {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	return &WebDAVFS{
 		ctx:      ctx,
 		client:   client,

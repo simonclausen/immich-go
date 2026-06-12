@@ -2,9 +2,11 @@ package nextcloud
 
 import "io/fs"
 
-var _ fs.FS = (*preferredLocalFS)(nil)
-var _ fs.ReadDirFS = (*preferredLocalFS)(nil)
-var _ fs.StatFS = (*preferredLocalFS)(nil)
+var (
+	_ fs.FS        = (*preferredLocalFS)(nil)
+	_ fs.ReadDirFS = (*preferredLocalFS)(nil)
+	_ fs.StatFS    = (*preferredLocalFS)(nil)
+)
 
 type preferredLocalFS struct {
 	local  fs.FS
