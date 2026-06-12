@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/simulot/immich-go/internal/assets"
@@ -33,6 +34,30 @@ func setContextValue(kv map[string]string) serverRequestOption {
 }
 
 func (ic *ImmichClient) uploadAsset(ctx context.Context, la *assets.Asset, endPoint string, replaceID string) (AssetResponse, error) {
+	const uploadRetryAttempts = 3
+
+	var (
+		ar  AssetResponse
+		err error
+	)
+
+	for attempt := 1; attempt <= uploadRetryAttempts; attempt++ {
+		ar, err = ic.uploadAssetOnce(ctx, la, endPoint, replaceID)
+		if !shouldRetryUpload(err, attempt, uploadRetryAttempts) {
+			return ar, err
+		}
+
+		select {
+		case <-ctx.Done():
+			return ar, errors.Join(err, ctx.Err())
+		case <-time.After(time.Duration(attempt) * time.Second):
+		}
+	}
+
+	return ar, err
+}
+
+func (ic *ImmichClient) uploadAssetOnce(ctx context.Context, la *assets.Asset, endPoint string, replaceID string) (AssetResponse, error) {
 	if ic.dryRun {
 		return AssetResponse{
 			ID:     uuid.NewString(),
@@ -75,8 +100,8 @@ func (ic *ImmichClient) uploadAsset(ctx context.Context, la *assets.Asset, endPo
 	errChan := make(chan error, 1)
 	go func() {
 		defer func() {
-			m.Close()
-			pw.Close()
+			_ = m.Close()
+			_ = pw.Close()
 		}()
 
 		var gErr error
@@ -111,12 +136,44 @@ func (ic *ImmichClient) uploadAsset(ctx context.Context, la *assets.Asset, endPo
 		errCall = ic.newServerCall(ctx, EndPointAssetReplace).
 			do(putRequest("/assets/"+replaceID+"/original", setContextValue(callValues), setAcceptJSON(), setImmichChecksum(la), setContentType(m.FormDataContentType()), setBody(body)), responseJSON(&ar))
 	}
-	if ar.Status == "duplicate" && errors.Is(err, io.ErrClosedPipe) {
-		err = nil // immich closes the connection when we upload the x-immich-checksum header and it finds a duplicate
+	if shouldIgnoreClosedPipe(ar, errCall) {
+		errCall = nil
 	}
 	gErr := <-errChan
+	if shouldIgnoreClosedPipe(ar, gErr) {
+		gErr = nil
+	}
 	err = errors.Join(err, errCall, gErr)
 	return ar, err
+}
+
+func shouldIgnoreClosedPipe(ar AssetResponse, err error) bool {
+	if err == nil {
+		return false
+	}
+	if ar.ID == "" && ar.Status != UploadCreated && ar.Status != "duplicate" {
+		return false
+	}
+	return errors.Is(err, io.ErrClosedPipe) || strings.Contains(err.Error(), "read/write on closed pipe")
+}
+
+func shouldRetryUpload(err error, attempt, maxAttempts int) bool {
+	if err == nil || attempt >= maxAttempts {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var callErr callError
+	if errors.As(err, &callErr) {
+		switch callErr.status {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return true
+		}
+	}
+
+	return errors.Is(err, io.ErrClosedPipe) || strings.Contains(err.Error(), "read/write on closed pipe")
 }
 
 func (ic *ImmichClient) prepareCallValues(la *assets.Asset, s fs.FileInfo, ext, mtype string) map[string]string {
