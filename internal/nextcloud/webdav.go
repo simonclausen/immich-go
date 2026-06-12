@@ -26,6 +26,8 @@ type WebDAVFS struct {
 	name     string
 }
 
+const davOpenOp = "open"
+
 var _ fs.FS = (*WebDAVFS)(nil)
 var _ fs.ReadDirFS = (*WebDAVFS)(nil)
 var _ fs.StatFS = (*WebDAVFS)(nil)
@@ -39,12 +41,9 @@ func NewWebDAVFS(ctx context.Context, client *Client, uid string) (*WebDAVFS, er
 	return newWebDAVFS(ctx, client.DAV(), pathpkg.Join("/files", uid), "nextcloud:"+uid), nil
 }
 
-func newWebDAVFS(ctx context.Context, client davReadClient, rootPath string, name string) *WebDAVFS {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func newWebDAVFS(_ context.Context, client davReadClient, rootPath string, name string) *WebDAVFS {
 	return &WebDAVFS{
-		ctx:      ctx,
+		ctx:      context.Background(),
 		client:   client,
 		rootPath: pathpkg.Clean(rootPath),
 		name:     name,
@@ -58,12 +57,12 @@ func (wfs *WebDAVFS) Name() string {
 func (wfs *WebDAVFS) Open(name string) (fs.File, error) {
 	davPath, cleanedName, err := wfs.resolveDAVPath(name)
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+		return nil, &fs.PathError{Op: davOpenOp, Path: name, Err: err}
 	}
 
 	info, err := wfs.client.Stat(davPath)
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: cleanedName, Err: err}
+		return nil, &fs.PathError{Op: davOpenOp, Path: cleanedName, Err: err}
 	}
 	if info.IsDir() {
 		return &webdavDir{fsys: wfs, name: cleanedName, info: info}, nil
@@ -71,7 +70,7 @@ func (wfs *WebDAVFS) Open(name string) (fs.File, error) {
 
 	stream, err := wfs.client.ReadStream(davPath)
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: cleanedName, Err: err}
+		return nil, &fs.PathError{Op: davOpenOp, Path: cleanedName, Err: err}
 	}
 	return &webdavFile{ReadCloser: newCancelableReadCloser(wfs.ctx, stream), info: info}, nil
 }
@@ -106,6 +105,7 @@ func (wfs *WebDAVFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 	return dirEntries, nil
 }
+
 func (wfs *WebDAVFS) resolveDAVPath(name string) (string, string, error) {
 	cleanedName, err := cleanRelativePath(name)
 	if err != nil {

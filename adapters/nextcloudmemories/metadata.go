@@ -33,14 +33,7 @@ type memoriesMetadataIndex struct {
 	infoQuery     nextcloud.MemoriesImageInfoQuery
 	client        *nextcloud.Client
 	selectedRoots []string
-	app           interface {
-		Log() interface {
-			Info(msg string, args ...any)
-			Debug(msg string, args ...any)
-			Warn(msg string, args ...any)
-		}
-	}
-	mu sync.Mutex
+	mu            sync.Mutex
 }
 
 func newMemoriesMetadataIndex() *memoriesMetadataIndex {
@@ -76,14 +69,14 @@ func (idx *memoriesMetadataIndex) Get(ctx context.Context, name string) (*assets
 	if err != nil {
 		idx.mu.Lock()
 		entry.loaded = true
-		entry.loadErr = fmt.Errorf("failed to load Memories image info for file %d: %w", entry.photo.FileID, err)
+		entry.loadErr = fmt.Errorf("failed to load memories image info for file %d: %w", entry.photo.FileID, err)
 		idx.mu.Unlock()
 		return nil, true, entry.loadErr
 	}
 
 	indexedPath := normalizeIndexedPath(info.FileName)
 	if indexedPath == "" {
-		err := fmt.Errorf("Memories image info for file %d did not include a filename", entry.photo.FileID)
+		err := fmt.Errorf("memories image info for file %d did not include a filename", entry.photo.FileID)
 		idx.mu.Lock()
 		entry.loaded = true
 		entry.loadErr = err

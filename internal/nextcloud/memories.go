@@ -277,7 +277,7 @@ func DescribeMemories(ctx context.Context, client *Client) (*MemoriesDescribe, e
 		return nil, err
 	}
 	if describe.Version == "" {
-		return nil, errors.New("Memories describe response did not include a version")
+		return nil, errors.New("memories describe response did not include a version")
 	}
 	return &describe, nil
 }
@@ -383,7 +383,7 @@ func DiscoverMemories(ctx context.Context, client *Client) (*MemoriesDiscovery, 
 
 	timelineRoots := splitTimelineRoots(config.TimelinePath)
 	if len(timelineRoots) == 0 {
-		return nil, errors.New("Memories config did not provide any timeline roots")
+		return nil, errors.New("memories config did not provide any timeline roots")
 	}
 
 	return &MemoriesDiscovery{

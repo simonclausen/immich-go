@@ -22,6 +22,11 @@ import (
 	"github.com/spf13/pflag"
 )
 
+const (
+	nextcloudMemoriesSourceName = "nextcloud-memories"
+	albumUserRoleEditor         = "editor"
+)
+
 // Command holds the CLI state for the Nextcloud Memories source scaffold.
 type Command struct {
 	NextcloudURL           string
@@ -68,9 +73,8 @@ func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
 	flags.StringArrayVar(&nc.UserMaps, "user-map", nil, "Map a Nextcloud user ID to an Immich user ID for album share restoration (<nextcloud-user>=<immich-user-id>). Can be specified multiple times")
 }
 
-// NewFromNextcloudMemoriesCommand creates a hidden command scaffold for the planned
-// Nextcloud Memories source importer. The command is callable for UX iteration but
-// remains hidden until source discovery and browsing are implemented.
+// NewFromNextcloudMemoriesCommand creates the command scaffold for the planned
+// Nextcloud Memories source importer.
 func NewFromNextcloudMemoriesCommand(ctx context.Context, parent *cobra.Command, app *app.Application, runner adapters.Runner) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "from-nextcloud-memories [flags]",
@@ -85,8 +89,7 @@ not arbitrary Nextcloud storage paths. The planned workflow is:
 3. Resolve the configured timeline roots.
 4. Import assets and supported metadata from that scope.
 
-This command scaffold is intentionally hidden while the source implementation is still
-being built. The current branch uses it to iterate on the UX and flag contract safely.`),
+This command is used to iterate on the UX and flag contract while the source implementation continues to mature.`),
 		Example: strings.TrimSpace(`  immich-go upload from-nextcloud-memories \
     --nextcloud-url=https://cloud.example.com \
     --nextcloud-user=alice \
@@ -101,8 +104,7 @@ being built. The current branch uses it to iterate on the UX and flag contract s
     --timeline-root=/Photos \
     --server=http://immich.example.com:2283 \
     --api-key="$IMMICH_API_KEY"`),
-		Args:   cobra.NoArgs,
-		Hidden: true,
+		Args: cobra.NoArgs,
 	}
 	cmd.SetContext(ctx)
 
@@ -110,7 +112,7 @@ being built. The current branch uses it to iterate on the UX and flag contract s
 	nc.RegisterFlags(cmd.Flags())
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return nc.Run(cmd, runner)
+		return nc.Run(cmd.Context(), cmd, runner)
 	}
 
 	return cmd
@@ -118,13 +120,14 @@ being built. The current branch uses it to iterate on the UX and flag contract s
 
 // Run validates the source configuration, prepares the selected Memories scope,
 // and delegates the actual upload lifecycle to the shared upload runner.
-func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
+func (nc *Command) Run(ctx context.Context, cmd *cobra.Command, runner adapters.Runner) error {
 	if err := nc.validate(); err != nil {
 		return err
 	}
-	ctx := context.Background()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cmd != nil {
-		ctx = cmd.Context()
 		cmd.Println(nc.intentSummary())
 	}
 
@@ -144,7 +147,7 @@ func (nc *Command) Run(cmd *cobra.Command, runner adapters.Runner) error {
 	}
 
 	if runner == nil {
-		return errors.New("Nextcloud Memories import runner is not configured")
+		return errors.New("nextcloud Memories import runner is not configured")
 	}
 	if err := nc.prepareImport(ctx); err != nil {
 		return err
@@ -181,7 +184,7 @@ func (nc *Command) prepareImport(ctx context.Context) error {
 			nc.selectedRoots = slices.Clone(nc.TimelineRoots)
 		}
 		if len(nc.selectedRoots) == 0 {
-			return errors.New("Nextcloud Memories import has no selected timeline roots")
+			return errors.New("nextcloud Memories import has no selected timeline roots")
 		}
 		return nil
 	}
@@ -224,7 +227,7 @@ func (nc *Command) prepareImport(ctx context.Context) error {
 		return err
 	}
 
-	var sourceFS fs.FS = remoteFS
+	sourceFS := fs.FS(remoteFS)
 	if nc.NextcloudLocalDir != "" {
 		sourceFS = nextcloud.NewPreferredLocalFS(osfs.DirFS(nc.NextcloudLocalDir), remoteFS)
 	}
@@ -258,7 +261,7 @@ func (nc *Command) DesiredAlbumUsers(ctx context.Context, album assets.Album) ([
 	if err != nil {
 		return nil, err
 	}
-	if state == nil || state.Source != "nextcloud-memories" || state.AlbumID <= 0 || state.OwnerUID == "" || state.AlbumName == "" {
+	if state == nil || state.Source != nextcloudMemoriesSourceName || state.AlbumID <= 0 || state.OwnerUID == "" || state.AlbumName == "" {
 		return nil, nil
 	}
 
@@ -298,7 +301,7 @@ func (nc *Command) DesiredAlbumUsers(ctx context.Context, album assets.Album) ([
 		seen[mappedUserID] = struct{}{}
 		desiredUsers = append(desiredUsers, adapters.AlbumUser{
 			UserID: mappedUserID,
-			Role:   "editor",
+			Role:   albumUserRoleEditor,
 		})
 	}
 
@@ -353,7 +356,8 @@ func (nc *Command) discoverySummary(discovery *nextcloud.MemoriesDiscovery) stri
 		selectedRoots = nc.TimelineRoots
 	}
 
-	lines := []string{
+	lines := make([]string, 0, 9+len(discovery.TimelineRoots)+1+len(selectedRoots)+6)
+	lines = append(lines,
 		"Nextcloud Memories discovery",
 		fmt.Sprintf("  nextcloud-base-url: %s", discovery.BaseURL),
 		fmt.Sprintf("  dav-root: %s", discovery.DAVRoot),
@@ -363,7 +367,7 @@ func (nc *Command) discoverySummary(discovery *nextcloud.MemoriesDiscovery) stri
 		fmt.Sprintf("  authenticated-user: %s", uid),
 		fmt.Sprintf("  memories-base-url: %s", discovery.Describe.BaseURL),
 		"  configured-timeline-roots:",
-	}
+	)
 	for _, root := range discovery.TimelineRoots {
 		lines = append(lines, fmt.Sprintf("    - %s", root))
 	}

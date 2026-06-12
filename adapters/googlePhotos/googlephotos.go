@@ -277,15 +277,22 @@ func (toc *TakeoutCmd) passOneFsWalk(ctx context.Context, w fs.FS) error {
 
 type matcherFn func(jsonName string, fileName string, sm filetypes.SupportedMedia) bool
 
+const (
+	matcherNameFastTrack           = "matchFastTrack"
+	matcherNameNormal              = "matchNormal"
+	matcherNameForgottenDuplicates = "matchForgottenDuplicates"
+	matcherNameEditedName          = "matchEditedName"
+)
+
 // matchers is a list of matcherFn from the most likely to be used to the least one
 var matchers = []struct {
 	name string
 	fn   matcherFn
 }{
-	{name: "matchFastTrack", fn: matchFastTrack},
-	{name: "matchNormal", fn: matchNormal},
-	{name: "matchForgottenDuplicates", fn: matchForgottenDuplicates},
-	{name: "matchEditedName", fn: matchEditedName},
+	{name: matcherNameFastTrack, fn: matchFastTrack},
+	{name: matcherNameNormal, fn: matchNormal},
+	{name: matcherNameForgottenDuplicates, fn: matchForgottenDuplicates},
+	{name: matcherNameEditedName, fn: matchEditedName},
 }
 
 func (toc *TakeoutCmd) solvePuzzle(ctx context.Context) error {

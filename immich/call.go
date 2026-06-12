@@ -102,7 +102,7 @@ func (ce callError) Error() string {
 	b.WriteString(ce.url)
 	if ce.status > 0 {
 		b.WriteString(", ")
-		b.WriteString(fmt.Sprintf("%d %s", ce.status, http.StatusText(ce.status)))
+		_, _ = fmt.Fprintf(&b, "%d %s", ce.status, http.StatusText(ce.status))
 	}
 	b.WriteRune('\n')
 	if ce.err != nil && !errors.Is(ce.err, &callError{}) {

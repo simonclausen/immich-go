@@ -36,10 +36,10 @@ func (nc *Command) Browse(ctx context.Context) chan *assets.Group {
 
 func (nc *Command) browse(ctx context.Context, gOut chan<- *assets.Group) error {
 	if nc.sourceFS == nil {
-		return errors.New("Nextcloud Memories source is not initialized")
+		return errors.New("nextcloud Memories source is not initialized")
 	}
 	if len(nc.selectedRoots) == 0 {
-		return errors.New("Nextcloud Memories import has no selected timeline roots")
+		return errors.New("nextcloud Memories import has no selected timeline roots")
 	}
 	if err := nc.ensureMetadataIndex(ctx); err != nil {
 		return err
@@ -130,7 +130,7 @@ func (nc *Command) emitAsset(ctx context.Context, gOut chan<- *assets.Group, see
 		return nil
 	}
 
-	asset, err := nc.assetFromInfo(name, info, infoCollector)
+	asset, err := nc.assetFromInfo(ctx, name, info, infoCollector)
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func (nc *Command) emitAsset(ctx context.Context, gOut chan<- *assets.Group, see
 	}
 }
 
-func (nc *Command) assetFromInfo(name string, info fs.FileInfo, infoCollector *filenames.InfoCollector) (*assets.Asset, error) {
+func (nc *Command) assetFromInfo(ctx context.Context, name string, info fs.FileInfo, infoCollector *filenames.InfoCollector) (*assets.Asset, error) {
 	asset := &assets.Asset{
 		File:             fshelper.FSName(nc.sourceFS, name),
 		FileSize:         int(info.Size()),
@@ -163,7 +163,7 @@ func (nc *Command) assetFromInfo(name string, info fs.FileInfo, infoCollector *f
 		return asset, nil
 	}
 
-	md, ok, err := nc.metadataIndex.Get(context.Background(), name)
+	md, ok, err := nc.metadataIndex.Get(ctx, name)
 	if err != nil {
 		if nc.RequireIndexed {
 			return nil, err
@@ -175,7 +175,7 @@ func (nc *Command) assetFromInfo(name string, info fs.FileInfo, infoCollector *f
 	}
 	if !ok {
 		if nc.RequireIndexed {
-			return nil, fmt.Errorf("Memories metadata missing for %q; the source library appears partially indexed. Rerun without --require-indexed to continue", name)
+			return nil, fmt.Errorf("memories metadata missing for %q; the source library appears partially indexed. rerun without --require-indexed to continue", name)
 		}
 		if nc.app != nil {
 			nc.app.Log().Warn("Nextcloud Memories asset is not indexed; importing without source metadata", "file", name)

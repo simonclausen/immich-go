@@ -169,10 +169,10 @@ func normalizeBaseURL(rawURL string) (*url.URL, error) {
 		return nil, err
 	}
 	if parsedURL.Scheme == "" || parsedURL.Host == "" {
-		return nil, errors.New("Nextcloud base URL must include scheme and host")
+		return nil, errors.New("nextcloud base URL must include scheme and host")
 	}
 	if parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
-		return nil, errors.New("Nextcloud base URL must not include a query string or fragment")
+		return nil, errors.New("nextcloud base URL must not include a query string or fragment")
 	}
 	parsedURL.Path = strings.TrimRight(parsedURL.Path, "/")
 	for _, suffix := range []string{"/remote.php/dav", "/remote.php/webdav"} {

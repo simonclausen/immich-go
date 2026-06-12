@@ -2,6 +2,10 @@ package nextcloud
 
 import "io/fs"
 
+var _ fs.FS = (*preferredLocalFS)(nil)
+var _ fs.ReadDirFS = (*preferredLocalFS)(nil)
+var _ fs.StatFS = (*preferredLocalFS)(nil)
+
 type preferredLocalFS struct {
 	local  fs.FS
 	remote fs.FS
@@ -29,7 +33,3 @@ func (p *preferredLocalFS) ReadDir(name string) ([]fs.DirEntry, error) {
 func (p *preferredLocalFS) Stat(name string) (fs.FileInfo, error) {
 	return fs.Stat(p.remote, name)
 }
-
-var _ fs.FS = (*preferredLocalFS)(nil)
-var _ fs.ReadDirFS = (*preferredLocalFS)(nil)
-var _ fs.StatFS = (*preferredLocalFS)(nil)

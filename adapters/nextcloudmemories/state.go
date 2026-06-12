@@ -9,6 +9,8 @@ import (
 	"github.com/simulot/immich-go/internal/nextcloud"
 )
 
+const managedAlbumStateSource = nextcloudMemoriesSourceName
+
 const (
 	memoriesManagedAlbumStateHeader  = "--- immich-go:nextcloud-memories:v1 ---"
 	memoriesManagedAlbumStateFooter  = "--- /immich-go ---"
@@ -42,7 +44,7 @@ func memoriesOwnedAlbumDescription(album nextcloud.MemoriesAlbum, ownerUID strin
 		return ""
 	}
 	description, err := applyManagedAlbumState("", managedAlbumState{
-		Source:        "nextcloud-memories",
+		Source:        managedAlbumStateSource,
 		SchemaVersion: 1,
 		AlbumID:       album.AlbumID,
 		OwnerUID:      ownerUID,

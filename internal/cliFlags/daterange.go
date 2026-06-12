@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const unsetDateRange = "unset"
+
 // DateRange represent the date range for capture date
 
 type DateRange struct {
@@ -39,7 +41,7 @@ func (dr DateRange) String() string {
 			return dr.After.Format("2006-01-02") + "," + dr.Before.AddDate(0, 0, -1).Format("2006-01-02")
 		}
 	} else {
-		return "unset"
+		return unsetDateRange
 	}
 }
 

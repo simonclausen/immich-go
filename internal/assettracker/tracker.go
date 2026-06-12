@@ -11,6 +11,11 @@ import (
 	"github.com/simulot/immich-go/internal/fshelper"
 )
 
+const (
+	assetReasonArgKey    = "reason"
+	assetEventCodeArgKey = "eventCode"
+)
+
 // AssetTracker tracks the complete lifecycle of assets (images/videos) from
 // discovery through final state (processed/discarded/error).
 // Non-asset files are ignored by this tracker.
@@ -146,7 +151,7 @@ func (at *AssetTracker) DiscoverAndDiscard(file fshelper.FSAndName, fileSize int
 				Code:      eventCode,
 				Timestamp: now,
 				Message:   "Asset discovered and immediately discarded",
-				Args:      map[string]any{"reason": reason},
+				Args:      map[string]any{assetReasonArgKey: reason},
 			},
 		}
 	}
@@ -198,7 +203,7 @@ func (at *AssetTracker) SetProcessed(file fshelper.FSAndName, eventCode fileeven
 	if at.bus != nil {
 		at.bus.Publish(fileevent.Event{
 			Code: fileevent.AssetStateTransitionProcessed,
-			Args: []any{"file", key, "eventCode", eventCode},
+			Args: []any{"file", key, assetEventCodeArgKey, eventCode},
 		})
 	}
 }
@@ -234,7 +239,7 @@ func (at *AssetTracker) SetDiscarded(file fshelper.FSAndName, eventCode fileeven
 			Code:      eventCode,
 			Timestamp: record.FinalizedAt,
 			Message:   "Asset discarded",
-			Args:      map[string]any{"reason": reason},
+			Args:      map[string]any{assetReasonArgKey: reason},
 		})
 	}
 
@@ -246,7 +251,7 @@ func (at *AssetTracker) SetDiscarded(file fshelper.FSAndName, eventCode fileeven
 	if at.bus != nil {
 		at.bus.Publish(fileevent.Event{
 			Code: fileevent.AssetStateTransitionDiscarded,
-			Args: []any{"file", key, "eventCode", eventCode, "reason", reason},
+			Args: []any{"file", key, assetEventCodeArgKey, eventCode, assetReasonArgKey, reason},
 		})
 	}
 }

@@ -349,7 +349,7 @@ func (uc *UpCmd) uploadLoop(ctx context.Context, groupChan chan *assets.Group) e
 
 	// Cleanup: delete server assets if needed
 	if len(uc.deleteServerList) > 0 {
-		ids := []string{}
+		ids := make([]string, 0, len(uc.deleteServerList))
 		for _, da := range uc.deleteServerList {
 			ids = append(ids, da.ID)
 		}
