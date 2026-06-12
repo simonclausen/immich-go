@@ -41,7 +41,7 @@ func NewWebDAVFS(ctx context.Context, client *Client, uid string) (*WebDAVFS, er
 		return nil, errors.New("missing Nextcloud user ID for DAV browsing")
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, errors.New("nil context passed to NewWebDAVFS")
 	}
 	return newWebDAVFS(ctx, client.DAV(), pathpkg.Join("/files", uid), "nextcloud:"+uid), nil
 }
