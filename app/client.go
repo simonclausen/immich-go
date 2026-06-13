@@ -139,6 +139,7 @@ func (client *Client) Open(ctx context.Context, app *Application) error {
 		immich.OptionVerifySSL(client.SkipSSL),
 		immich.OptionConnectionTimeout(client.ClientTimeout),
 		immich.OptionDryRun(client.DryRun),
+		immich.OptionRetryPolicy(app.RetryAttempts, app.RetryBackoff, app.RetryMaxDelay),
 		immich.OptionRetryLogger(func(ctx context.Context, msg string, args ...any) {
 			client.ClientLog.InfoContext(ctx, msg, args...)
 		}),
@@ -157,6 +158,7 @@ func (client *Client) Open(ctx context.Context, app *Application) error {
 		client.AdminAPIKey,
 		immich.OptionVerifySSL(client.SkipSSL),
 		immich.OptionConnectionTimeout(adminTime),
+		immich.OptionRetryPolicy(app.RetryAttempts, app.RetryBackoff, app.RetryMaxDelay),
 		immich.OptionRetryLogger(func(ctx context.Context, msg string, args ...any) {
 			client.ClientLog.InfoContext(ctx, msg, args...)
 		}),

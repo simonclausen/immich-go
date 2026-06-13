@@ -131,8 +131,6 @@ func (ic *ImmichClient) newServerCall(ctx context.Context, api string) *serverCa
 	return sc
 }
 
-const defaultRetryAttempts = 3
-
 func (sc *serverCall) Err(req *http.Request, resp *http.Response, msg *ServerErrorMessage) error {
 	ce := callError{
 		endPoint: sc.endPoint,
@@ -226,20 +224,24 @@ func putRequest(url string, opts ...serverRequestOption) requestFunction {
 }
 
 func (sc *serverCall) do(fnRequest requestFunction, opts ...serverResponseOption) error {
-	for attempt := 1; attempt <= defaultRetryAttempts; attempt++ {
+	maxAttempts := 3
+	if sc != nil && sc.ic != nil && sc.ic.RetryAttempts > 0 {
+		maxAttempts = sc.ic.RetryAttempts
+	}
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		sc.err = nil
 		sc.hasResponseHandler = false
 
 		resp, req, err := sc.doOnce(fnRequest, opts...)
-		if !shouldRetryCall(err, attempt, sc.retryable) {
+		if !shouldRetryCall(err, attempt, maxAttempts, sc.retryable) {
 			return err
 		}
 
-		delay := time.Duration(attempt) * time.Second
+		delay := sc.ic.retryDelay(attempt)
 		sc.logRetry("retrying Immich request",
 			"endpoint", sc.endPoint,
 			"attempt", attempt+1,
-			"max_attempts", defaultRetryAttempts,
+			"max_attempts", maxAttempts,
 			"delay", delay,
 			"error", err,
 		)
@@ -312,8 +314,8 @@ func (sc *serverCall) doOnce(fnRequest requestFunction, opts ...serverResponseOp
 	return resp, req, nil
 }
 
-func shouldRetryCall(err error, attempt int, retryable bool) bool {
-	if !retryable || err == nil || attempt >= defaultRetryAttempts {
+func shouldRetryCall(err error, attempt int, maxAttempts int, retryable bool) bool {
+	if !retryable || err == nil || attempt >= maxAttempts {
 		return false
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

@@ -124,19 +124,19 @@ func TestShouldRetryUpload(t *testing.T) {
 	t.Parallel()
 
 	err := callError{status: http.StatusBadGateway}
-	if !shouldRetryUpload(err, 1) {
+	if !shouldRetryUpload(err, 1, 3) {
 		t.Fatal("expected 502 to be retryable")
 	}
-	if shouldRetryUpload(err, 3) {
+	if shouldRetryUpload(err, 3, 3) {
 		t.Fatal("did not expect retry on last attempt")
 	}
-	if shouldRetryUpload(context.Canceled, 1) {
+	if shouldRetryUpload(context.Canceled, 1, 3) {
 		t.Fatal("did not expect context cancellation to be retryable")
 	}
-	if !shouldRetryUpload(errors.New("Post \"https://example.com/api/assets\": io: read/write on closed pipe"), 1) {
+	if !shouldRetryUpload(errors.New("Post \"https://example.com/api/assets\": io: read/write on closed pipe"), 1, 3) {
 		t.Fatal("expected closed pipe upload error to be retryable")
 	}
-	if !shouldRetryUpload(errors.New("write tcp 10.0.0.2:12345->10.0.0.1:443: write: broken pipe"), 1) {
+	if !shouldRetryUpload(errors.New("write tcp 10.0.0.2:12345->10.0.0.1:443: write: broken pipe"), 1, 3) {
 		t.Fatal("expected broken pipe upload error to be retryable")
 	}
 }

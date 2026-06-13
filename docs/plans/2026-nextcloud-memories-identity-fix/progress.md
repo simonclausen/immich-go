@@ -23,6 +23,7 @@
 - 2026-06-13: Live retries currently only cover multipart uploads in `immich/upload.go`; generic Immich JSON operations like `UpdateAsset`, album updates, tag upserts, and copy/delete calls still fail fast on transient `502/503/504` responses.
 - 2026-06-13: Follow-up resilience work should move bounded transient retry handling into the shared `immich` request layer so non-upload write operations behave consistently with upload retry policy.
 - 2026-06-13: Added INFO-level retry diagnostics for shared Immich requests and multipart uploads so transient retry behavior is visible during live runs without being reported as a terminal failure.
+- 2026-06-13: Follow-up resilience work now makes transient Immich retries configurable, increases default patience to 6 attempts with exponential backoff plus jitter, and keeps `--on-errors=stop` semantics focused on unrecoverable failures after retry exhaustion.
 
 ## PR Reasoning Notes
 
