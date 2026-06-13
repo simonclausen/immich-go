@@ -42,6 +42,7 @@ func TestNewFromNextcloudMemoriesCommandMetadata(t *testing.T) {
 	assert.NotNil(t, cmd.Flag("discover-only"))
 	assert.NotNil(t, cmd.Flag("timeline-root"))
 	assert.NotNil(t, cmd.Flag("sync-albums"))
+	assert.NotNil(t, cmd.Flag("sync-tags"))
 	assert.NotNil(t, cmd.Flag("require-indexed"))
 	assert.NotNil(t, cmd.Flag("tag-album-membership"))
 	assert.NotNil(t, cmd.Flag("user-map"))

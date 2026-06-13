@@ -38,6 +38,7 @@ type Command struct {
 	DiscoverOnly           bool
 	TimelineRoots          []string
 	SyncAlbums             bool
+	SyncTags               bool
 	RequireIndexed         bool
 	TagAlbumMembership     bool
 	UserMaps               []string
@@ -68,6 +69,7 @@ func (nc *Command) RegisterFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&nc.DiscoverOnly, "discover-only", false, "Print detected Memories configuration and exit")
 	flags.StringSliceVar(&nc.TimelineRoots, "timeline-root", nil, "Limit the import to configured Memories timeline roots. Can be specified multiple times")
 	flags.BoolVar(&nc.SyncAlbums, "sync-albums", true, "Recreate Memories albums in Immich")
+	flags.BoolVar(&nc.SyncTags, "sync-tags", false, "Transfer source Memories system tags to Immich tags")
 	flags.BoolVar(&nc.RequireIndexed, "require-indexed", false, "Fail if files are found under the selected Memories roots without matching Memories metadata")
 	flags.BoolVar(&nc.TagAlbumMembership, "tag-album-membership", false, "Add synthetic tags encoding source album membership to support later shared-album reconciliation")
 	flags.StringArrayVar(&nc.UserMaps, "user-map", nil, "Map a Nextcloud user ID to an Immich user ID for album share restoration (<nextcloud-user>=<immich-user-id>). Can be specified multiple times")
@@ -335,6 +337,7 @@ func (nc *Command) intentSummary() string {
 		fmt.Sprintf("  source-files: %s", sourceMode),
 		fmt.Sprintf("  timeline-roots: %s", rootScope),
 		fmt.Sprintf("  sync-albums: %t", nc.SyncAlbums),
+		fmt.Sprintf("  sync-tags: %t", nc.SyncTags),
 		fmt.Sprintf("  require-indexed: %t", nc.RequireIndexed),
 		fmt.Sprintf("  tag-album-membership: %t", nc.TagAlbumMembership),
 		fmt.Sprintf("  user-maps: %d", len(nc.userMappings)),

@@ -17,6 +17,7 @@ import (
 type metadataMappingOptions struct {
 	OwnerUID           string
 	SyncAlbums         bool
+	SyncTags           bool
 	TagAlbumMembership bool
 }
 
@@ -377,6 +378,7 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 	options := metadataMappingOptions{
 		OwnerUID:           strings.TrimSpace(nc.NextcloudUser),
 		SyncAlbums:         nc.SyncAlbums,
+		SyncTags:           nc.SyncTags,
 		TagAlbumMembership: nc.TagAlbumMembership,
 	}
 	if nc.discovery.Describe.UID != nil && strings.TrimSpace(*nc.discovery.Describe.UID) != "" {
@@ -384,7 +386,7 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 	}
 
 	infoQuery := nextcloud.MemoriesImageInfoQuery{
-		Tags: nc.discovery.Config.SystemTagsEnabled,
+		Tags: nc.SyncTags && nc.discovery.Config.SystemTagsEnabled,
 	}
 	if (nc.SyncAlbums || nc.TagAlbumMembership) && nc.discovery.Config.AlbumsEnabled {
 		infoQuery.Clusters = []string{"albums"}
@@ -442,7 +444,7 @@ func metadataFromMemories(photo nextcloud.MemoriesPhoto, info *nextcloud.Memorie
 	}
 
 	tags := make([]string, 0, len(info.Tags)+len(info.Clusters.Albums))
-	if len(info.Tags) > 0 {
+	if options.SyncTags && len(info.Tags) > 0 {
 		for _, tag := range info.Tags {
 			tag = strings.TrimSpace(tag)
 			if tag == "" {

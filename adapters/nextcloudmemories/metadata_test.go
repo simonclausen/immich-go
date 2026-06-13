@@ -34,7 +34,7 @@ func TestMetadataFromMemoriesMapsArchivedAndSharedAlbums(t *testing.T) {
 		Archived:   true,
 		IsFavorite: true,
 		DateTaken:  1700000000,
-	}, info, metadataMappingOptions{OwnerUID: "alice", SyncAlbums: true})
+	}, info, metadataMappingOptions{OwnerUID: "alice", SyncAlbums: true, SyncTags: true})
 
 	require.NotNil(t, md)
 	assert.True(t, md.Archived)
@@ -69,6 +69,37 @@ func TestMetadataFromMemoriesOptionallyTagsAlbumMembership(t *testing.T) {
 	require.Len(t, md.Tags, 1)
 	assert.Equal(t, "immich-go/src/nextcloud-memories/album/42", md.Tags[0].Value)
 	assert.Empty(t, md.Albums)
+}
+
+func TestMetadataFromMemoriesSkipsSourceTagsByDefault(t *testing.T) {
+	t.Parallel()
+
+	info := &nextcloud.MemoriesImageInfo{
+		Tags: map[string]string{
+			"1": "Travel",
+		},
+	}
+
+	md := metadataFromMemories(nextcloud.MemoriesPhoto{}, info, metadataMappingOptions{})
+
+	require.NotNil(t, md)
+	assert.Empty(t, md.Tags)
+}
+
+func TestMetadataFromMemoriesOptionallyIncludesSourceTags(t *testing.T) {
+	t.Parallel()
+
+	info := &nextcloud.MemoriesImageInfo{
+		Tags: map[string]string{
+			"1": "Travel",
+		},
+	}
+
+	md := metadataFromMemories(nextcloud.MemoriesPhoto{}, info, metadataMappingOptions{SyncTags: true})
+
+	require.NotNil(t, md)
+	require.Len(t, md.Tags, 1)
+	assert.Equal(t, "Travel", md.Tags[0].Value)
 }
 
 func TestMetadataFromMemoriesCanCreateAlbumsAndMembershipTagsTogether(t *testing.T) {

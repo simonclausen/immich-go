@@ -4,7 +4,7 @@
 - [x] Step 2: Replace fragile metadata indexing with asset-identity-first indexing
 - [x] Step 3: Preserve album membership and synthetic tags through duplicate collapse
 - [ ] Step 4: Improve diagnostics and fail-closed options
-- [ ] Step 5: Update docs and plan tracking
+- [x] Step 5: Update docs and plan tracking
 
 ## Notes
 
@@ -18,6 +18,8 @@
 - 2026-06-13: Reworked shared duplicate handling in `app/upload/run.go` so `AlreadyProcessed`, `SameOnServer`, and `BetterOnServer` merge albums and tags onto the canonical Immich asset before issuing album/tag updates.
 - 2026-06-13: Short shared-impact audit suggests the duplicate-membership fix is generally correct for other sources too, because the shared upload pipeline is used by `from-folder`, `from-google-photos`, and `from-immich`, all of which can attach albums and/or tags before deduplication.
 - 2026-06-13: Live testing feedback showed the hybrid approach also allowed increasing upload concurrency from 10 to 20 without stressing the Immich server, which supports keeping metadata hydration bounded and decoupled from the hot upload path.
+- 2026-06-13: Added a `--sync-tags` toggle for `from-nextcloud-memories` and left it disabled by default so noisy Memories AI/system tags are not migrated unless explicitly requested.
+- 2026-06-13: Confirmed rerun behavior is intentionally additive for tags in the shared upload pipeline: album-membership tags are preserved and added, and `--sync-tags` does not try to remove existing Immich tags from previously imported assets.
 
 ## PR Reasoning Notes
 
