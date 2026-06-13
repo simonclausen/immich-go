@@ -93,6 +93,7 @@ func TestBrowseEnrichesAssetsWithMemoriesMetadata(t *testing.T) {
 		metadataIndex: newMemoriesMetadataIndex(),
 	}
 	nc.metadataIndex.photosByPath["Photos/IMG_0001.JPG"] = &indexedMemoriesPhoto{
+		record: &memoriesAssetRecord{CanonicalPath: "Photos/IMG_0001.JPG"},
 		loaded: true,
 		metadata: &assets.Metadata{
 			Description: "Sunset",
@@ -190,9 +191,51 @@ func TestBrowseFallsBackWhenMetadataIndexBuildFails(t *testing.T) {
 	require.Len(t, groups, 1)
 	assert.Nil(t, groups[0].Assets[0].FromApplication)
 	assert.NotNil(t, nc.metadataIndex)
-	assert.Len(t, nc.metadataIndex.photosByPath, 1)
+	assert.Len(t, nc.metadataIndex.photosByID, 1)
 	counts := nc.app.FileProcessor().Logger().GetCounts()
 	assert.EqualValues(t, 1, counts[fileevent.DiscoveredImage])
+}
+
+func TestBrowseResolvesMetadataAfterCanonicalFilenameHydration(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.php/apps/memories/api/image/info/42":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"fileid":42,"basename":"IMG_0001.JPG","mimetype":"image/jpeg","filename":"/Photos/2017/IMG_0001.JPG","clusters":{"albums":[{"album_id":7,"name":"Familie","user":"alice"}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	nc := &Command{
+		app: newTestApp(t),
+		sourceFS: fstest.MapFS{
+			"Photos/2017/IMG_0001.JPG": {Data: []byte("image"), ModTime: time.Unix(1700000000, 0)},
+		},
+		selectedRoots: []string{"/Photos"},
+		client:        client,
+		metadataIndex: newMemoriesMetadataIndex(),
+	}
+	nc.metadataIndex.client = client
+	nc.metadataIndex.selectedRoots = []string{"/Photos"}
+	nc.metadataIndex.options = metadataMappingOptions{OwnerUID: "alice", SyncAlbums: true}
+	nc.metadataIndex.infoQuery = nextcloud.MemoriesImageInfoQuery{Clusters: []string{"albums"}}
+	nc.metadataIndex.Put("", nextcloud.MemoriesPhoto{FileID: 42, Basename: "IMG_0001.JPG", DateTaken: 1700000000})
+
+	groups := collectGroups(nc.Browse(context.Background()))
+	require.Len(t, groups, 1)
+	asset := groups[0].Assets[0]
+	require.NotNil(t, asset.FromApplication)
+	require.Len(t, asset.Albums, 1)
+	assert.Equal(t, "Familie", asset.Albums[0].Title)
+	_, ok, err := nc.metadataIndex.Get(context.Background(), "Photos/2017/IMG_0001.JPG")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Contains(t, nc.metadataIndex.photosByPath, "Photos/2017/IMG_0001.JPG")
 }
 
 func TestTimelineRootToFSPath(t *testing.T) {

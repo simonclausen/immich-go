@@ -70,3 +70,22 @@ func TestMetadataFromMemoriesOptionallyTagsAlbumMembership(t *testing.T) {
 	assert.Equal(t, "immich-go/src/nextcloud-memories/album/42", md.Tags[0].Value)
 	assert.Empty(t, md.Albums)
 }
+
+func TestMetadataFromMemoriesCanCreateAlbumsAndMembershipTagsTogether(t *testing.T) {
+	t.Parallel()
+
+	info := &nextcloud.MemoriesImageInfo{}
+	info.Clusters.Albums = []nextcloud.MemoriesAlbum{{AlbumID: 42, Name: "Roadtrip", User: "alice"}}
+
+	md := metadataFromMemories(nextcloud.MemoriesPhoto{}, info, metadataMappingOptions{
+		OwnerUID:           "alice",
+		SyncAlbums:         true,
+		TagAlbumMembership: true,
+	})
+
+	require.NotNil(t, md)
+	require.Len(t, md.Tags, 1)
+	assert.Equal(t, "immich-go/src/nextcloud-memories/album/42", md.Tags[0].Value)
+	require.Len(t, md.Albums, 1)
+	assert.Equal(t, "Roadtrip", md.Albums[0].Title)
+}

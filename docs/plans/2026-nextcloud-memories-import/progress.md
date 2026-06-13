@@ -12,6 +12,9 @@ The command shape, scope model, guardrails, and draft user-facing documentation 
 
 Shared-album reconstruction now has its first implemented restore path: owned albums store source state on the destination, the importer can read Nextcloud DAV collaborator metadata, and reruns restore mapped album collaborators idempotently through the Immich album-user APIs.
 
+The follow-up user reconciliation phase is now being split into a dedicated top-level `immich-go reconcile` command so post-import shared-album convergence does not overload `upload from-nextcloud-memories`.
+
+Live migration review on 2026-06-13 found that album reconstruction and synthetic album-membership tagging are not yet reliable on real libraries. A follow-up plan in `docs/plans/2026-nextcloud-memories-identity-fix/` now tracks correcting the source identity model and duplicate-membership preservation before this importer should be considered ready for album migration.
 ---
 
 ## Step Tracking
@@ -133,6 +136,17 @@ Shared-album reconstruction now has its first implemented restore path: owned al
 - this made the importer appear hung even when DAV enumeration itself was healthy
 - lazy loading preserves metadata fidelity for imported assets while restoring the earlier "enumerate first" behavior of the DAV-backed importer
 - best-effort enrichment is safer for real Memories deployments that may return payload variants not covered by the original typed structs
+
+### 2026-06-13: Memories Asset Identity Must Drive Metadata Mapping
+
+**Decision**: Treat the Nextcloud Memories asset ID as the canonical source identity, and use file paths only to resolve discovered files to that source asset.
+
+**Rationale**:
+
+- live migration evidence showed the current metadata join misses most discovered files in real libraries
+- album membership and synthetic migration tags belong to the Memories asset object, not to a basename-derived path guess
+- upload deduplication can only preserve album membership correctly if source occurrences resolve to stable source asset records first
+- diagnostics should distinguish source indexing gaps from importer join failures
 
 ### 2026-06-03: Shared Albums Should Prefer Server-Stored Migration State
 
