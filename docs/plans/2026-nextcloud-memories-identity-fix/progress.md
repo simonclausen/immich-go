@@ -3,7 +3,7 @@
 - [x] Step 1: Verify and document the source identity contract
 - [x] Step 2: Replace fragile metadata indexing with asset-identity-first indexing
 - [x] Step 3: Preserve album membership and synthetic tags through duplicate collapse
-- [ ] Step 4: Improve diagnostics and fail-closed options
+- [x] Step 4: Improve diagnostics and fail-closed options
 - [x] Step 5: Update docs and plan tracking
 
 ## Notes
@@ -22,6 +22,7 @@
 - 2026-06-13: Confirmed rerun behavior is intentionally additive for tags in the shared upload pipeline: album-membership tags are preserved and added, and `--sync-tags` does not try to remove existing Immich tags from previously imported assets.
 - 2026-06-13: Live retries currently only cover multipart uploads in `immich/upload.go`; generic Immich JSON operations like `UpdateAsset`, album updates, tag upserts, and copy/delete calls still fail fast on transient `502/503/504` responses.
 - 2026-06-13: Follow-up resilience work should move bounded transient retry handling into the shared `immich` request layer so non-upload write operations behave consistently with upload retry policy.
+- 2026-06-13: Added INFO-level retry diagnostics for shared Immich requests and multipart uploads so transient retry behavior is visible during live runs without being reported as a terminal failure.
 
 ## PR Reasoning Notes
 

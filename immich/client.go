@@ -1,6 +1,7 @@
 package immich
 
 import (
+	"context"
 	"crypto/tls"
 	"io"
 	"net"
@@ -26,6 +27,7 @@ type ImmichClient struct {
 	Retries        int           // Number of attempts on 500 errors
 	RetriesDelay   time.Duration // Duration between retries
 	apiTraceWriter io.Writer     // If not nil, logs API calls to this writer
+	retryLogger    func(context.Context, string, ...any)
 
 	supportedMediaTypes filetypes.SupportedMedia // Server's list of supported medias
 	dryRun              bool                     //  If true, do not send any data to the server
@@ -82,6 +84,13 @@ func OptionConnectionTimeout(d time.Duration) clientOption {
 func OptionDryRun(dryRun bool) clientOption {
 	return func(ic *ImmichClient) error {
 		ic.dryRun = dryRun
+		return nil
+	}
+}
+
+func OptionRetryLogger(fn func(context.Context, string, ...any)) clientOption {
+	return func(ic *ImmichClient) error {
+		ic.retryLogger = fn
 		return nil
 	}
 }

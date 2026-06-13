@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -234,6 +235,15 @@ func (sc *serverCall) do(fnRequest requestFunction, opts ...serverResponseOption
 			return err
 		}
 
+		delay := time.Duration(attempt) * time.Second
+		sc.logRetry("retrying Immich request",
+			"endpoint", sc.endPoint,
+			"attempt", attempt+1,
+			"max_attempts", defaultRetryAttempts,
+			"delay", delay,
+			"error", err,
+		)
+
 		if resp != nil && resp.Body != nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
@@ -245,12 +255,19 @@ func (sc *serverCall) do(fnRequest requestFunction, opts ...serverResponseOption
 				return sc.ctx.Err()
 			}
 			return errors.Join(err, sc.ctx.Err())
-		case <-time.After(time.Duration(attempt) * time.Second):
+		case <-time.After(delay):
 		}
 
 		_ = req
 	}
 	return nil
+}
+
+func (sc *serverCall) logRetry(msg string, args ...any) {
+	if sc == nil || sc.ic == nil || sc.ic.retryLogger == nil {
+		return
+	}
+	sc.ic.retryLogger(sc.ctx, msg, args...)
 }
 
 func (sc *serverCall) doOnce(fnRequest requestFunction, opts ...serverResponseOption) (*http.Response, *http.Request, error) {
@@ -301,6 +318,11 @@ func shouldRetryCall(err error, attempt int, retryable bool) bool {
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
 	}
 
 	var callErr callError

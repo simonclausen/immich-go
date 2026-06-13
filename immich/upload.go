@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"path"
 	"strings"
@@ -46,10 +47,22 @@ func (ic *ImmichClient) uploadAsset(ctx context.Context, la *assets.Asset, endPo
 			return ar, err
 		}
 
+		delay := time.Duration(attempt) * time.Second
+		if ic.retryLogger != nil {
+			ic.retryLogger(ctx, "retrying Immich upload",
+				"endpoint", endPoint,
+				"file", la.OriginalFileName,
+				"attempt", attempt+1,
+				"max_attempts", uploadRetryAttempts,
+				"delay", delay,
+				"error", err,
+			)
+		}
+
 		select {
 		case <-ctx.Done():
 			return ar, errors.Join(err, ctx.Err())
-		case <-time.After(time.Duration(attempt) * time.Second):
+		case <-time.After(delay):
 		}
 	}
 
@@ -164,6 +177,11 @@ func shouldRetryUpload(err error, attempt int) bool {
 		return false
 	}
 
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
 	var callErr callError
 	if errors.As(err, &callErr) {
 		switch callErr.status {
@@ -172,7 +190,7 @@ func shouldRetryUpload(err error, attempt int) bool {
 		}
 	}
 
-	return errors.Is(err, io.ErrClosedPipe) || strings.Contains(err.Error(), "read/write on closed pipe")
+	return errors.Is(err, io.ErrClosedPipe) || strings.Contains(err.Error(), "read/write on closed pipe") || strings.Contains(err.Error(), "broken pipe")
 }
 
 func (ic *ImmichClient) prepareCallValues(la *assets.Asset, s fs.FileInfo, ext, mtype string) map[string]string {

@@ -2,9 +2,11 @@ package immich
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -130,5 +132,51 @@ func TestShouldRetryUpload(t *testing.T) {
 	}
 	if shouldRetryUpload(context.Canceled, 1) {
 		t.Fatal("did not expect context cancellation to be retryable")
+	}
+	if !shouldRetryUpload(errors.New("Post \"https://example.com/api/assets\": io: read/write on closed pipe"), 1) {
+		t.Fatal("expected closed pipe upload error to be retryable")
+	}
+	if !shouldRetryUpload(errors.New("write tcp 10.0.0.2:12345->10.0.0.1:443: write: broken pipe"), 1) {
+		t.Fatal("expected broken pipe upload error to be retryable")
+	}
+}
+
+func TestUploadRetryLogsAtInfoHook(t *testing.T) {
+	t.Parallel()
+
+	var logs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"Bad Gateway","statusCode":502,"message":"upstream busy"}`))
+	}))
+	defer server.Close()
+
+	ic, err := NewImmichClient(server.URL, "key", OptionRetryLogger(func(_ context.Context, msg string, args ...any) {
+		logs = append(logs, msg)
+	}))
+	if err != nil {
+		t.Fatalf("NewImmichClient() error = %v", err)
+	}
+	ic.supportedMediaTypes = filetypes.DefaultSupportedMedia
+
+	la := &assets.Asset{
+		File:             fshelper.FSName(fstest.MapFS{"video.mp4": {Data: []byte("upload payload")}}, "video.mp4"),
+		OriginalFileName: "video.mp4",
+		FileSize:         len("upload payload"),
+		Checksum:         "checksum",
+		FileDate:         time.Unix(0, 0),
+	}
+	defer la.Close()
+
+	_, err = ic.uploadAsset(context.Background(), la, EndPointAssetUpload, "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	want := []string{"retrying Immich upload", "retrying Immich upload"}
+	if !reflect.DeepEqual(logs, want) {
+		t.Fatalf("retry logs = %#v, want %#v", logs, want)
 	}
 }

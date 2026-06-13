@@ -2,8 +2,10 @@ package immich
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 )
@@ -71,8 +73,39 @@ func TestShouldRetryCall(t *testing.T) {
 	if shouldRetryCall(context.Canceled, 1, true) {
 		t.Fatal("did not expect context cancellation to be retryable")
 	}
+	if !shouldRetryCall(errors.New("Put \"https://example.com/api/assets/1\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"), 1, true) {
+		t.Fatal("expected timeout transport error to be retryable")
+	}
 	if shouldRetryCall(err, 1, false) {
 		t.Fatal("did not expect retry when disabled")
+	}
+}
+
+func TestCallRetryLogsAtInfoHook(t *testing.T) {
+	t.Parallel()
+
+	var logs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"Bad Gateway","statusCode":502,"message":"upstream busy"}`))
+	}))
+	defer server.Close()
+
+	ic, err := NewImmichClient(server.URL, "1234", OptionRetryLogger(func(_ context.Context, msg string, args ...any) {
+		logs = append(logs, msg)
+	}))
+	if err != nil {
+		t.Fatalf("NewImmichClient() error = %v", err)
+	}
+
+	err = ic.newServerCall(context.Background(), "retry-test").do(getRequest("/assets", setAcceptJSON()))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	want := []string{"retrying Immich request", "retrying Immich request"}
+	if !reflect.DeepEqual(logs, want) {
+		t.Fatalf("retry logs = %#v, want %#v", logs, want)
 	}
 }
 
