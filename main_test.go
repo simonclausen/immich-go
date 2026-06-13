@@ -18,6 +18,7 @@ func TestInterruptCancelsContextOnFirstSignal(t *testing.T) {
 	t.Cleanup(func() { cancel(nil) })
 
 	signals := make(chan os.Signal, 2)
+	t.Cleanup(func() { close(signals) })
 	forced := make(chan int, 1)
 	startInterruptHandler(cancel, signals, func(code int) { forced <- code })
 
@@ -44,6 +45,7 @@ func TestInterruptForcesExitOnSecondSignal(t *testing.T) {
 	t.Cleanup(func() { cancel(nil) })
 
 	signals := make(chan os.Signal, 2)
+	t.Cleanup(func() { close(signals) })
 	forced := make(chan int, 1)
 	startInterruptHandler(cancel, signals, func(code int) { forced <- code })
 
@@ -67,9 +69,13 @@ func TestInterruptForcesExitOnSecondSignal(t *testing.T) {
 
 func startInterruptHandler(cancel context.CancelCauseFunc, signals <-chan os.Signal, exitFn func(int)) {
 	go func() {
-		<-signals
+		if _, ok := <-signals; !ok {
+			return
+		}
 		cancel(errInterrupt)
-		<-signals
+		if _, ok := <-signals; !ok {
+			return
+		}
 		exitFn(130)
 	}()
 }

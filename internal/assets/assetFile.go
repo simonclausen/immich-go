@@ -26,6 +26,8 @@ func (a *Asset) ensureCacheReader() error {
 
 	cr, sha1, err := cachereader.NewCacheReader(a.File.FullName(), f)
 	if err != nil {
+		_ = f.Close()
+		debugfiles.TrackCloseFile(f)
 		return err
 	}
 	a.cacheReader = cr
