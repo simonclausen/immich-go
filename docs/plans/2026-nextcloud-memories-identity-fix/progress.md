@@ -20,6 +20,8 @@
 - 2026-06-13: Live testing feedback showed the hybrid approach also allowed increasing upload concurrency from 10 to 20 without stressing the Immich server, which supports keeping metadata hydration bounded and decoupled from the hot upload path.
 - 2026-06-13: Added a `--sync-tags` toggle for `from-nextcloud-memories` and left it disabled by default so noisy Memories AI/system tags are not migrated unless explicitly requested.
 - 2026-06-13: Confirmed rerun behavior is intentionally additive for tags in the shared upload pipeline: album-membership tags are preserved and added, and `--sync-tags` does not try to remove existing Immich tags from previously imported assets.
+- 2026-06-13: Live retries currently only cover multipart uploads in `immich/upload.go`; generic Immich JSON operations like `UpdateAsset`, album updates, tag upserts, and copy/delete calls still fail fast on transient `502/503/504` responses.
+- 2026-06-13: Follow-up resilience work should move bounded transient retry handling into the shared `immich` request layer so non-upload write operations behave consistently with upload retry policy.
 
 ## PR Reasoning Notes
 

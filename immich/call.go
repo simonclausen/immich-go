@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/simulot/immich-go/internal/assets"
 	"github.com/simulot/immich-go/internal/fshelper"
@@ -69,6 +70,7 @@ type serverCall struct {
 	err                error
 	ctx                context.Context
 	hasResponseHandler bool
+	retryable          bool
 }
 
 // callError represents errors returned by the server
@@ -123,7 +125,15 @@ func (ic *ImmichClient) newServerCall(ctx context.Context, api string) *serverCa
 		endPoint: api,
 		ic:       ic,
 		ctx:      ctx,
+		retryable: true,
 	}
+	return sc
+}
+
+const defaultRetryAttempts = 3
+
+func (sc *serverCall) withRetryable(retryable bool) *serverCall {
+	sc.retryable = retryable
 	return sc
 }
 
@@ -220,51 +230,93 @@ func putRequest(url string, opts ...serverRequestOption) requestFunction {
 }
 
 func (sc *serverCall) do(fnRequest requestFunction, opts ...serverResponseOption) error {
-	var (
-		resp *http.Response
-		err  error
-	)
+	for attempt := 1; attempt <= defaultRetryAttempts; attempt++ {
+		sc.err = nil
+		sc.hasResponseHandler = false
 
+		resp, req, err := sc.doOnce(fnRequest, opts...)
+		if !shouldRetryCall(err, attempt, sc.retryable) {
+			return err
+		}
+
+		if resp != nil && resp.Body != nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
+
+		select {
+		case <-sc.ctx.Done():
+			if err == nil {
+				return sc.ctx.Err()
+			}
+			return errors.Join(err, sc.ctx.Err())
+		case <-time.After(time.Duration(attempt) * time.Second):
+		}
+
+		_ = req
+	}
+	return nil
+}
+
+func (sc *serverCall) doOnce(fnRequest requestFunction, opts ...serverResponseOption) (*http.Response, *http.Request, error) {
 	req := fnRequest(sc)
 	if sc.err != nil || req == nil {
-		return sc.Err(req, nil, nil)
+		return nil, req, sc.Err(req, nil, nil)
 	}
 
-	resp, err = sc.ic.client.Do(req)
-	// any non nil error must be returned
+	resp, err := sc.ic.client.Do(req)
 	if err != nil {
 		sc.err = err
-		return sc.Err(req, nil, nil)
+		return nil, req, sc.Err(req, nil, nil)
 	}
 
-	// Any StatusCode above 300 denotes a problem, we expect a JSON with the server's error
 	if resp.StatusCode >= 300 {
 		msg := ServerErrorMessage{}
 		if resp.Body != nil {
-			defer resp.Body.Close()
 			if isJSON(resp.Header.Get("Content-Type")) {
 				if json.NewDecoder(resp.Body).Decode(&msg) == nil {
-					return sc.Err(req, resp, &msg)
+					return resp, req, sc.Err(req, resp, &msg)
 				}
 			}
 		}
-		return sc.Err(req, resp, &msg)
+		return resp, req, sc.Err(req, resp, &msg)
 	}
 
-	// We have a success
 	for _, opt := range opts {
 		if opt != nil {
 			_ = sc.joinError(opt(sc, resp))
 		}
+	}
+	if shouldIgnoreResponseDecodeError(resp, sc.err) {
+		sc.err = nil
 	}
 	if !sc.hasResponseHandler && resp.Body != nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 	if sc.err != nil {
-		return sc.Err(req, resp, nil)
+		return resp, req, sc.Err(req, resp, nil)
 	}
-	return nil
+	return resp, req, nil
+}
+
+func shouldRetryCall(err error, attempt int, retryable bool) bool {
+	if !retryable || err == nil || attempt >= defaultRetryAttempts {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var callErr callError
+	if errors.As(err, &callErr) {
+		switch callErr.status {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, http.StatusTooManyRequests:
+			return true
+		}
+	}
+
+	return false
 }
 
 type serverRequestOption func(sc *serverCall, req *http.Request) error
@@ -393,4 +445,14 @@ func responseOctetStream(rc *io.ReadCloser) serverResponseOption {
 func isJSON(contentType string) bool {
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	return err == nil && mediaType == "application/json"
+}
+
+func shouldIgnoreResponseDecodeError(resp *http.Response, err error) bool {
+	if err == nil || resp == nil || resp.StatusCode >= 300 {
+		return false
+	}
+	if !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "unexpected EOF") {
+		return false
+	}
+	return true
 }

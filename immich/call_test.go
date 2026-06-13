@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
@@ -11,6 +12,68 @@ type testServer struct {
 	// endpoint       string
 	responseStatus int
 	responseBody   string
+}
+
+func TestCallRetriesTransientServerError(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu       sync.Mutex
+		attempts int
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts++
+		current := attempts
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if current < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":"Bad Gateway","statusCode":502,"message":"upstream busy"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	ic, err := NewImmichClient(server.URL, "1234")
+	if err != nil {
+		t.Fatalf("NewImmichClient() error = %v", err)
+	}
+
+	resp := map[string]string{}
+	err = ic.newServerCall(context.Background(), "retry-test").do(getRequest("/assets", setAcceptJSON()), responseJSON(&resp))
+	if err != nil {
+		t.Fatalf("do() error = %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Fatalf("response status = %q, want ok", resp["status"])
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != 3 {
+		t.Fatalf("attempt count = %d, want 3", attempts)
+	}
+}
+
+func TestShouldRetryCall(t *testing.T) {
+	t.Parallel()
+
+	err := callError{status: http.StatusBadGateway}
+	if !shouldRetryCall(err, 1, true) {
+		t.Fatal("expected 502 to be retryable")
+	}
+	if shouldRetryCall(err, 3, true) {
+		t.Fatal("did not expect retry on last attempt")
+	}
+	if shouldRetryCall(context.Canceled, 1, true) {
+		t.Fatal("did not expect context cancellation to be retryable")
+	}
+	if shouldRetryCall(err, 1, false) {
+		t.Fatal("did not expect retry when disabled")
+	}
 }
 
 func (ts *testServer) ServeHTTP(resp http.ResponseWriter, req *http.Request) {

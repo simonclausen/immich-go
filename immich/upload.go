@@ -167,7 +167,7 @@ func shouldRetryUpload(err error, attempt int) bool {
 	var callErr callError
 	if errors.As(err, &callErr) {
 		switch callErr.status {
-		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, http.StatusTooManyRequests:
 			return true
 		}
 	}
