@@ -94,18 +94,17 @@ func (ii *immichIndex) addImmichAsset(ia *immich.Asset) (*assets.Asset, bool) {
 	return ii.add(a, false), true
 }
 
-func (ii *immichIndex) addLocalAsset(ia *assets.Asset) bool {
+func (ii *immichIndex) addLocalAsset(ia *assets.Asset) {
 	ii.lock.Lock()
 	defer ii.lock.Unlock()
 
 	if _, ok := ii.immichAssets.Load(ia.ID); ok {
-		return false
+		return
 	}
 	if _, ok := ii.byChecksum.Load(ia.Checksum); ok {
-		return false
+		return
 	}
 	ii.add(ia, true)
-	return true
 }
 
 func (ii *immichIndex) getByID(id string) *assets.Asset {
