@@ -122,20 +122,15 @@ func (ce callError) Error() string {
 
 func (ic *ImmichClient) newServerCall(ctx context.Context, api string) *serverCall {
 	sc := &serverCall{
-		endPoint: api,
-		ic:       ic,
-		ctx:      ctx,
+		endPoint:  api,
+		ic:        ic,
+		ctx:       ctx,
 		retryable: true,
 	}
 	return sc
 }
 
 const defaultRetryAttempts = 3
-
-func (sc *serverCall) withRetryable(retryable bool) *serverCall {
-	sc.retryable = retryable
-	return sc
-}
 
 func (sc *serverCall) Err(req *http.Request, resp *http.Response, msg *ServerErrorMessage) error {
 	ce := callError{

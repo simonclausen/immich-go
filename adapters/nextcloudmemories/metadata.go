@@ -21,6 +21,8 @@ type metadataMappingOptions struct {
 	TagAlbumMembership bool
 }
 
+const memoriesClusterAlbums = "albums"
+
 type memoriesAssetRecord struct {
 	Photo         nextcloud.MemoriesPhoto
 	CanonicalPath string
@@ -389,7 +391,7 @@ func (nc *Command) buildMetadataIndex(ctx context.Context) (*memoriesMetadataInd
 		Tags: nc.SyncTags && nc.discovery.Config.SystemTagsEnabled,
 	}
 	if (nc.SyncAlbums || nc.TagAlbumMembership) && nc.discovery.Config.AlbumsEnabled {
-		infoQuery.Clusters = []string{"albums"}
+		infoQuery.Clusters = []string{memoriesClusterAlbums}
 	}
 
 	index.client = nc.client
