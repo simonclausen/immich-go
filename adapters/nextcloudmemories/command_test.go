@@ -388,6 +388,34 @@ func TestCommandRejectsPositionalArguments(t *testing.T) {
 	assert.ErrorContains(t, err, "unknown command \"unexpected-path\" for \"from-nextcloud-memories\"")
 }
 
+func TestNewReconcileCommandMetadata(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	parent := &cobra.Command{Use: "reconcile"}
+	a := app.New(ctx, parent)
+	cmd := NewReconcileCommand(ctx, parent, a)
+
+	assert.Equal(t, "nextcloud-memories [flags]", cmd.Use)
+	assert.Contains(t, cmd.Short, "Reconcile Nextcloud Memories")
+	assert.Contains(t, cmd.Long, "post-import convergence workflows")
+	assert.NotNil(t, cmd.Flag("cleanup-migration-tags"))
+	assert.Empty(t, cmd.Aliases)
+}
+
+func TestReconcileCommandReturnsNotImplemented(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	parent := &cobra.Command{Use: "reconcile"}
+	a := app.New(ctx, parent)
+	cmd := NewReconcileCommand(ctx, parent, a)
+
+	err := cmd.RunE(cmd, nil)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "not implemented")
+}
+
 func stringPtr(value string) *string {
 	return &value
 }

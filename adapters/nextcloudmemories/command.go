@@ -120,6 +120,28 @@ This command is used to iterate on the UX and flag contract while the source imp
 	return cmd
 }
 
+// NewReconcileCommand creates the command scaffold for Nextcloud Memories reconciliation.
+func NewReconcileCommand(ctx context.Context, parent *cobra.Command, app *app.Application) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "nextcloud-memories [flags]",
+		Short: "Reconcile Nextcloud Memories shared-album migration state in Immich",
+		Long: strings.TrimSpace(`Reconcile destination-side Nextcloud Memories migration state already stored in Immich.
+
+This command is intended for post-import convergence workflows such as shared-album
+reconstruction after one or more users have already imported their own libraries.`),
+		Args: cobra.NoArgs,
+	}
+	cmd.SetContext(ctx)
+
+	cmd.Flags().Bool("cleanup-migration-tags", false, "Remove successfully reconciled synthetic migration tags after the run")
+
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return errors.New("nextcloud Memories reconciliation is not implemented yet")
+	}
+
+	return cmd
+}
+
 // Run validates the source configuration, prepares the selected Memories scope,
 // and delegates the actual upload lifecycle to the shared upload runner.
 func (nc *Command) Run(ctx context.Context, cmd *cobra.Command, runner adapters.Runner) error {
