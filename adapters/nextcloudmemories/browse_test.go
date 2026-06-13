@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync/atomic"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -236,6 +237,137 @@ func TestBrowseResolvesMetadataAfterCanonicalFilenameHydration(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ok)
 	assert.Contains(t, nc.metadataIndex.photosByPath, "Photos/2017/IMG_0001.JPG")
+}
+
+func TestBrowseResolvesMetadataByUniqueBasenameBeforeCanonicalPathKnown(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.php/apps/memories/api/image/info/42":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"fileid":42,"basename":"19-04-08 17-51-33 0488.jpg","mimetype":"image/jpeg","filename":"/Photos/2019/04/19-04-08 17-51-33 0488.jpg","clusters":{"albums":[{"album_id":7,"name":"Familie","user":"alice"}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	nc := &Command{
+		app: newTestApp(t),
+		sourceFS: fstest.MapFS{
+			"Photos/2019/04/19-04-08 17-51-33 0488.jpg": {Data: []byte("image"), ModTime: time.Unix(1700000000, 0)},
+		},
+		selectedRoots: []string{"/Photos"},
+		client:        client,
+		metadataIndex: newMemoriesMetadataIndex(),
+	}
+	nc.metadataIndex.client = client
+	nc.metadataIndex.selectedRoots = []string{"/Photos"}
+	nc.metadataIndex.options = metadataMappingOptions{OwnerUID: "alice", SyncAlbums: true}
+	nc.metadataIndex.infoQuery = nextcloud.MemoriesImageInfoQuery{Clusters: []string{"albums"}}
+	nc.metadataIndex.Put("", nextcloud.MemoriesPhoto{FileID: 42, Basename: "19-04-08 17-51-33 0488.jpg", DateTaken: 1700000000})
+
+	groups := collectGroups(nc.Browse(context.Background()))
+	require.Len(t, groups, 1)
+	asset := groups[0].Assets[0]
+	require.NotNil(t, asset.FromApplication)
+	require.Len(t, asset.Albums, 1)
+	assert.Equal(t, "Familie", asset.Albums[0].Title)
+	assert.Contains(t, nc.metadataIndex.photosByPath, "Photos/2019/04/19-04-08 17-51-33 0488.jpg")
+}
+
+func TestMetadataIndexWarmupLearnsCanonicalPathBeforeDirectLookup(t *testing.T) {
+	t.Parallel()
+
+	var infoCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.php/apps/memories/api/image/info/42":
+			infoCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"fileid":42,"basename":"19-04-08 17-51-33 0488.jpg","mimetype":"image/jpeg","filename":"/Photos/2019/04/19-04-08 17-51-33 0488.jpg","clusters":{"albums":[{"album_id":7,"name":"Familie","user":"alice"}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	idx := newMemoriesMetadataIndex()
+	idx.client = client
+	idx.selectedRoots = []string{"/Photos"}
+	idx.options = metadataMappingOptions{OwnerUID: "alice", SyncAlbums: true}
+	idx.infoQuery = nextcloud.MemoriesImageInfoQuery{Clusters: []string{"albums"}}
+	idx.Put("", nextcloud.MemoriesPhoto{FileID: 42, Basename: "19-04-08 17-51-33 0488.jpg", DateTaken: 1700000000})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	idx.startWarmup(ctx)
+
+	idx.mu.Lock()
+	entry, ok := idx.photosByBase["19-04-08 17-51-33 0488.jpg"]
+	require.True(t, ok)
+	require.Len(t, entry, 1)
+	idx.enqueueWarmLocked(entry[0])
+	idx.mu.Unlock()
+
+	require.Eventually(t, func() bool {
+		idx.mu.Lock()
+		defer idx.mu.Unlock()
+		_, ok := idx.photosByPath["Photos/2019/04/19-04-08 17-51-33 0488.jpg"]
+		return ok
+	}, time.Second, 10*time.Millisecond)
+
+	md, ok, err := idx.Get(context.Background(), "Photos/2019/04/19-04-08 17-51-33 0488.jpg")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotNil(t, md)
+	require.Len(t, md.Albums, 1)
+	assert.Equal(t, "Familie", md.Albums[0].Title)
+	assert.EqualValues(t, 1, infoCalls.Load())
+}
+
+func TestMetadataIndexRepeatedLookupIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	var infoCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.php/apps/memories/api/image/info/42":
+			infoCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"fileid":42,"basename":"IMG_0001.JPG","mimetype":"image/jpeg","filename":"/Photos/2017/IMG_0001.JPG","clusters":{"albums":[{"album_id":7,"name":"Familie","user":"alice"}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, server.URL)
+	idx := newMemoriesMetadataIndex()
+	idx.client = client
+	idx.selectedRoots = []string{"/Photos"}
+	idx.options = metadataMappingOptions{OwnerUID: "alice", SyncAlbums: true}
+	idx.infoQuery = nextcloud.MemoriesImageInfoQuery{Clusters: []string{"albums"}}
+	idx.Put("", nextcloud.MemoriesPhoto{FileID: 42, Basename: "IMG_0001.JPG", DateTaken: 1700000000})
+
+	md1, ok, err := idx.Get(context.Background(), "Photos/2017/IMG_0001.JPG")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotNil(t, md1)
+
+	md2, ok, err := idx.Get(context.Background(), "Photos/2017/IMG_0001.JPG")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotNil(t, md2)
+
+	require.Len(t, md1.Albums, 1)
+	require.Len(t, md2.Albums, 1)
+	assert.Equal(t, "Familie", md1.Albums[0].Title)
+	assert.Equal(t, "Familie", md2.Albums[0].Title)
+	assert.EqualValues(t, 1, infoCalls.Load())
 }
 
 func TestTimelineRootToFSPath(t *testing.T) {

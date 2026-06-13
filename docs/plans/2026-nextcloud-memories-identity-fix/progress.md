@@ -14,8 +14,10 @@
 - 2026-06-13: Separate follow-up concern: duplicate upload paths appear not to merge album membership and synthetic tags robustly when multiple source occurrences collapse onto a single destination asset.
 - 2026-06-13: Confirmed from `internal/nextcloud` that the importer can model Memories source identity around `fileid`, with `image/info/<fileid>` returning the canonical `filename` plus album clusters.
 - 2026-06-13: Reworked `adapters/nextcloudmemories/metadata.go` so the metadata index is keyed by Memories asset ID first and learns canonical paths from `image/info` hydration.
+- 2026-06-13: Added a hybrid warm-up design that starts data transfer immediately while a bounded background queue progressively hydrates `image/info` responses into an exact full-path map.
 - 2026-06-13: Reworked shared duplicate handling in `app/upload/run.go` so `AlreadyProcessed`, `SameOnServer`, and `BetterOnServer` merge albums and tags onto the canonical Immich asset before issuing album/tag updates.
 - 2026-06-13: Short shared-impact audit suggests the duplicate-membership fix is generally correct for other sources too, because the shared upload pipeline is used by `from-folder`, `from-google-photos`, and `from-immich`, all of which can attach albums and/or tags before deduplication.
+- 2026-06-13: Live testing feedback showed the hybrid approach also allowed increasing upload concurrency from 10 to 20 without stressing the Immich server, which supports keeping metadata hydration bounded and decoupled from the hot upload path.
 
 ## PR Reasoning Notes
 
@@ -23,3 +25,5 @@
 - The duplicate-membership fix is shared pipeline correctness work: the old logic could drop relationship metadata whenever a source asset matched an already-known local or server asset.
 - This shared fix is expected to benefit any importer that sets `asset.Albums` or `asset.Tags` before entering `app/upload`, including `from-folder`, `from-google-photos`, and `from-immich`.
 - The change does not broaden upload selection or alter duplicate detection rules; it preserves metadata that should already have been applied to the canonical destination asset.
+- The hybrid warm-up design keeps the importer responsive by preserving the earlier "start transferring quickly" behavior while progressively replacing heuristic lookup with exact path resolution from `image/info/<fileid>`.
+- The hybrid approach remains idempotent because exact path learning is cached per Memories `fileid`, duplicate handling stays additive for albums/tags, and ambiguous bootstrap lookup is intentionally conservative.
