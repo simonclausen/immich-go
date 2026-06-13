@@ -14,6 +14,10 @@ import (
 	"github.com/simulot/immich-go/immich"
 	"github.com/simulot/immich-go/internal/assets"
 	"github.com/simulot/immich-go/internal/assets/cache"
+	"github.com/simulot/immich-go/internal/fileevent"
+	"github.com/simulot/immich-go/internal/fileprocessor"
+	"github.com/simulot/immich-go/internal/assettracker"
+	"github.com/simulot/immich-go/internal/fshelper"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,6 +124,60 @@ func TestSaveAlbumUpdatesExistingAlbumUserRole(t *testing.T) {
 	assert.Equal(t, albumUserUpdateCall{albumID: "album-1", userID: "user-2", role: immich.AlbumUserRoleEditor}, updateCalls[0])
 }
 
+func TestHandleAssetAlreadyProcessedMergesAlbumsAndTagsOntoCanonicalAsset(t *testing.T) {
+	t.Parallel()
+
+	uc := &UpCmd{
+		app: newUploadTestApp(),
+		assetIndex: newAssetIndex(),
+		albumsCache: cache.NewCollectionCache(10, func(album assets.Album, ids []string) (assets.Album, error) {
+			album.ID = "album-1"
+			return album, nil
+		}),
+		tagsCache: cache.NewCollectionCache(10, func(tag assets.Tag, ids []string) (assets.Tag, error) {
+			tag.ID = "tag-1"
+			return tag, nil
+		}),
+	}
+
+	canonical := &assets.Asset{
+		ID:               "asset-1",
+		Checksum:         "checksum-1",
+		OriginalFileName: "IMG_0001.JPG",
+		FileSize:         123,
+		Albums:           []assets.Album{{Title: "Existing"}},
+		Tags:             []assets.Tag{{Name: "Existing", Value: "Existing"}},
+	}
+	uc.assetIndex.addLocalAsset(canonical)
+
+	duplicate := &assets.Asset{
+		File:             fshelper.FSName(nil, "Photos/IMG_0001.JPG"),
+		Checksum:         "checksum-1",
+		OriginalFileName: "IMG_0001.JPG",
+		FileSize:         123,
+		Albums:           []assets.Album{{Title: "Familie"}},
+		Tags:             []assets.Tag{{Name: "2", Value: "immich-go/src/nextcloud-memories/album/2"}},
+
+
+	err := uc.handleAsset(context.Background(), duplicate)
+	require.NoError(t, err)
+
+	assert.Equal(t, "asset-1", duplicate.ID)
+	require.Len(t, canonical.Albums, 2)
+	assert.ElementsMatch(t, []string{"Existing", "Familie"}, []string{canonical.Albums[0].Title, canonical.Albums[1].Title})
+	require.Len(t, canonical.Tags, 2)
+	assert.ElementsMatch(t, []string{"Existing", "immich-go/src/nextcloud-memories/album/2"}, []string{canonical.Tags[0].Value, canonical.Tags[1].Value})
+
+	album, ids, ok := uc.albumsCache.GetCollection("Familie")
+	require.True(t, ok)
+	assert.Equal(t, "Familie", album.Title)
+	assert.Equal(t, []string{"asset-1"}, ids)
+
+	tag, ids, ok := uc.tagsCache.GetCollection("2")
+	require.True(t, ok)
+	assert.Equal(t, "immich-go/src/nextcloud-memories/album/2", tag.Value)
+	assert.Equal(t, []string{"asset-1"}, ids)
+}
 type albumUserProviderStub struct {
 	users []adapters.AlbumUser
 }
@@ -141,5 +199,8 @@ type albumUserUpdateCall struct {
 func newUploadTestApp() *app.Application {
 	a := app.New(context.Background(), &cobra.Command{})
 	a.Log().Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	bus := fileevent.NewBus()
+	tracker := assettracker.NewWithBus(a.Log().Logger, false, bus)
+	a.SetFileProcessor(fileprocessor.NewWithBus(tracker, a.Log().Logger, bus))
 	return a
 }

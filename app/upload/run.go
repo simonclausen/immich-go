@@ -442,25 +442,37 @@ func (uc *UpCmd) handleAsset(ctx context.Context, a *assets.Asset) error {
 		return nil
 
 	case AlreadyProcessed: // SHA1 already processed
+		a.ID = advice.ServerAsset.ID
+		a.MergeAlbums(advice.ServerAsset.Albums)
+		a.MergeTags(advice.ServerAsset.Tags)
+		uc.assetIndex.mergeAssetMetadata(advice.ServerAsset, a)
 		// Record as discarded - duplicate in input
 		uc.app.FileProcessor().RecordNonAsset(ctx, a.File, int64(a.FileSize), fileevent.DiscardedLocalDuplicate)
 		uc.app.FileProcessor().RecordAssetProcessed(ctx, a.File, int64(a.FileSize), fileevent.ProcessedMetadataUpdated)
 		uc.manageAssetAlbums(ctx, a.File, a.ID, a.Albums)
+		uc.manageAssetTags(ctx, a)
 		return nil
 
 	case SameOnServer:
 		a.ID = advice.ServerAsset.ID
-		a.Albums = append(a.Albums, advice.ServerAsset.Albums...)
+		a.MergeAlbums(advice.ServerAsset.Albums)
+		a.MergeTags(advice.ServerAsset.Tags)
+		uc.assetIndex.mergeAssetMetadata(advice.ServerAsset, a)
 		// Record as processed - duplicate on server
 		uc.app.FileProcessor().RecordNonAsset(ctx, a.File, int64(a.FileSize), fileevent.DiscardedServerDuplicate)
 		uc.app.FileProcessor().RecordAssetProcessed(ctx, a.File, int64(a.FileSize), fileevent.ProcessedMetadataUpdated)
 		uc.manageAssetAlbums(ctx, a.File, a.ID, a.Albums)
+		uc.manageAssetTags(ctx, a)
 
 	case BetterOnServer: // and manage albums
 		a.ID = advice.ServerAsset.ID
+		a.MergeAlbums(advice.ServerAsset.Albums)
+		a.MergeTags(advice.ServerAsset.Tags)
+		uc.assetIndex.mergeAssetMetadata(advice.ServerAsset, a)
 		// Record as discarded - server has better version
 		uc.app.FileProcessor().RecordAssetDiscarded(ctx, a.File, int64(a.FileSize), fileevent.ProcessedMetadataUpdated, advice.Message)
 		uc.manageAssetAlbums(ctx, a.File, a.ID, a.Albums)
+		uc.manageAssetTags(ctx, a)
 
 	case ForceUpload:
 		var serverStatus string

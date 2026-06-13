@@ -168,6 +168,16 @@ func (ii *immichIndex) replaceAsset(newA *assets.Asset, oldA *assets.Asset) *ass
 	return newA
 }
 
+func (ii *immichIndex) mergeAssetMetadata(target *assets.Asset, incoming *assets.Asset) {
+	if target == nil || incoming == nil {
+		return
+	}
+	ii.lock.Lock()
+	defer ii.lock.Unlock()
+	target.MergeAlbums(incoming.Albums)
+	target.MergeTags(incoming.Tags)
+}
+
 func (ii *immichIndex) isAlreadyProcessed(checksum string) bool {
 	return ii.uploadsChecksum.Contains(checksum)
 }
