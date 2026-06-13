@@ -157,7 +157,7 @@ func TestHandleAssetAlreadyProcessedMergesAlbumsAndTagsOntoCanonicalAsset(t *tes
 		FileSize:         123,
 		Albums:           []assets.Album{{Title: "Familie"}},
 		Tags:             []assets.Tag{{Name: "2", Value: "immich-go/src/nextcloud-memories/album/2"}},
-
+	}
 
 	err := uc.handleAsset(context.Background(), duplicate)
 	require.NoError(t, err)
